@@ -36,6 +36,8 @@ import {
   computeKnowledgeStats,
   buildDailyProgressReport,
   isTimeFor19hReport,
+  extractGrammarSourcesSummary,
+  filterGrammarsBySelectedSources,
 } from './utils/studyLogic';
 import {
   generateClientTargetedQuestions,
@@ -117,6 +119,12 @@ export default function App() {
     setTimeout(() => setToastMessage(null), 4500);
   };
 
+  const activeGrammarSources =
+    knowledgeBase.selectedGrammarSources ??
+    extractGrammarSourcesSummary(knowledgeBase.grammars, knowledgeBase.grammarSources).map(
+      (s) => s.name
+    );
+
   // Automatic 19:00 Daily Checkpoint Watcher
   useEffect(() => {
     const check19hSchedule = () => {
@@ -129,7 +137,10 @@ export default function App() {
           studyLog,
           roadmap,
           vocabulary: knowledgeBase.vocabulary,
-          grammars: knowledgeBase.grammars,
+          grammars: filterGrammarsBySelectedSources(
+            knowledgeBase.grammars,
+            activeGrammarSources
+          ),
           bugs,
         });
         setActiveReport(compiled);
@@ -147,10 +158,15 @@ export default function App() {
     check19hSchedule();
     const timer = setInterval(check19hSchedule, 60000);
     return () => clearInterval(timer);
-  }, [dailyReports, studyLog, roadmap, knowledgeBase, bugs]);
+  }, [dailyReports, studyLog, roadmap, knowledgeBase, bugs, activeGrammarSources]);
 
   const dueBugs = getBugsDueForReview(bugs);
-  const stats = computeKnowledgeStats(knowledgeBase.vocabulary, knowledgeBase.grammars);
+  const stats = computeKnowledgeStats(
+    knowledgeBase.vocabulary,
+    knowledgeBase.grammars,
+    Date.now(),
+    activeGrammarSources
+  );
   const weakItemsCount = stats.vocabWeakLv1_3 + stats.grammarWeakLv1_3;
 
   const handleOpenEveningReport = () => {
@@ -158,7 +174,10 @@ export default function App() {
       studyLog,
       roadmap,
       vocabulary: knowledgeBase.vocabulary,
-      grammars: knowledgeBase.grammars,
+      grammars: filterGrammarsBySelectedSources(
+        knowledgeBase.grammars,
+        activeGrammarSources
+      ),
       bugs,
     });
     setActiveReport(compiled);
@@ -193,7 +212,11 @@ export default function App() {
   ) => {
     const { priorityVocab, priorityGrammar } = selectPriorityTargets(
       knowledgeBase.vocabulary,
-      knowledgeBase.grammars
+      knowledgeBase.grammars,
+      Date.now(),
+      12,
+      6,
+      activeGrammarSources
     );
     const categoryMap: Record<QuizFormatType, JLPTCategory> = {
       reading_integrated: 'reading',
@@ -336,7 +359,11 @@ export default function App() {
 
     const { priorityVocab, priorityGrammar } = selectPriorityTargets(
       knowledgeBase.vocabulary,
-      knowledgeBase.grammars
+      knowledgeBase.grammars,
+      Date.now(),
+      12,
+      6,
+      activeGrammarSources
     );
 
     const inferredFormat: QuizFormatType =
@@ -366,7 +393,11 @@ export default function App() {
   ) => {
     const { priorityVocab, priorityGrammar } = selectPriorityTargets(
       knowledgeBase.vocabulary,
-      knowledgeBase.grammars
+      knowledgeBase.grammars,
+      Date.now(),
+      12,
+      6,
+      activeGrammarSources
     );
     await handleStartTargetedQuiz(format, priorityVocab, priorityGrammar, title, undefined, isBonus);
   };
@@ -526,9 +557,19 @@ export default function App() {
     previousReport?: DailyProgressReport | null
   ) => {
     const daysRemaining = calculateDaysRemaining(examDate);
+    const allSources = extractGrammarSourcesSummary(
+      kbToUse.grammars,
+      kbToUse.grammarSources
+    ).map((s) => s.name);
+    const selectedSources = kbToUse.selectedGrammarSources ?? allSources;
+
     const { priorityVocab, priorityGrammar } = selectPriorityTargets(
       kbToUse.vocabulary,
-      kbToUse.grammars
+      kbToUse.grammars,
+      Date.now(),
+      12,
+      6,
+      selectedSources
     );
 
     let generatedRoadmap: DailyRoadmap | null = null;
@@ -574,7 +615,7 @@ export default function App() {
         daysRemaining,
         focusMessage: previousReport
           ? `Lộ trình thích ứng dựa trên Báo cáo 19:00 (${previousReport.date}): Chia rõ 4 Mục (Từ vựng, Ngữ pháp, Đọc hiểu, Nghe hiểu) với từng Mondai cụ thể.`
-          : `Chiến dịch ${daysRemaining} ngày trước kỳ thi: Phân bổ ${priorityVocab.length} từ vựng & ${priorityGrammar.length} ngữ pháp Lv1–Lv3 vào 4 Mục với từng Mondai rõ ràng.`,
+          : `Chiến dịch ${daysRemaining} ngày trước kỳ thi: Phân bổ ${priorityVocab.length} từ vựng & ${priorityGrammar.length} ngữ pháp Lv1–Lv3 (${selectedSources.length} nguồn đang bật) vào 4 Mục với từng Mondai rõ ràng.`,
         targetScoreGoal: 'Hoàn thành đầy đủ các Mondai trọng tâm của 4 kỹ năng & Tổng kết lúc 19:00',
         totalEstimatedMinutes: structuredTasks.reduce((s, t) => s + t.estimatedMinutes, 0),
         tasks: structuredTasks,
@@ -638,6 +679,69 @@ export default function App() {
     }
   };
 
+  const applyGrammarSourcesUpdate = (nextSelectedSources: string[], msg: string) => {
+    const nextKB: KnowledgeBaseData = {
+      ...knowledgeBase,
+      selectedGrammarSources: nextSelectedSources,
+    };
+    setKnowledgeBase(nextKB);
+
+    const { priorityVocab, priorityGrammar } = selectPriorityTargets(
+      nextKB.vocabulary,
+      nextKB.grammars,
+      Date.now(),
+      12,
+      6,
+      nextSelectedSources
+    );
+    const updatedTasks = buildStructuredDailyTasks({
+      pendingBugsCount: dueBugs.length,
+      priorityVocab,
+      priorityGrammar,
+    }).map((t) => {
+      const prevTask = roadmap.tasks.find((pt) => pt.id === t.id);
+      return prevTask ? { ...t, completed: prevTask.completed } : t;
+    });
+
+    setRoadmap((prev) => ({
+      ...prev,
+      tasks: updatedTasks,
+      totalEstimatedMinutes: updatedTasks.reduce((s, t) => s + t.estimatedMinutes, 0),
+    }));
+    showToast(msg);
+  };
+
+  const handleToggleGrammarSource = (sourceName: string) => {
+    const allSources = extractGrammarSourcesSummary(
+      knowledgeBase.grammars,
+      knowledgeBase.grammarSources
+    ).map((s) => s.name);
+    const currentSelected = knowledgeBase.selectedGrammarSources ?? allSources;
+    const isCurrentlySelected = currentSelected.includes(sourceName);
+
+    const nextSelected = isCurrentlySelected
+      ? currentSelected.filter((s) => s !== sourceName)
+      : [...currentSelected, sourceName];
+
+    applyGrammarSourcesUpdate(
+      nextSelected,
+      isCurrentlySelected
+        ? `Đã bỏ nguồn "${sourceName}" khỏi lộ trình ôn tập.`
+        : `Đã đưa nguồn "${sourceName}" vào lộ trình ôn tập.`
+    );
+  };
+
+  const handleSelectAllGrammarSources = () => {
+    const allSources = extractGrammarSourcesSummary(
+      knowledgeBase.grammars,
+      knowledgeBase.grammarSources
+    ).map((s) => s.name);
+    applyGrammarSourcesUpdate(
+      allSources,
+      `Đã bật lại toàn bộ ${allSources.length} nguồn ngữ pháp!`
+    );
+  };
+
   const handleChangeVocabLevel = (id: string, newLevel: number) => {
     setKnowledgeBase((prev) => ({
       ...prev,
@@ -698,6 +802,8 @@ export default function App() {
             onStartAllDueBugs={handleStartAllDueBugs}
             onQuickStartFormat={handleQuickStartFormat}
             onAddExtraTaskToRoadmap={handleAddExtraTaskToRoadmap}
+            onToggleGrammarSource={handleToggleGrammarSource}
+            onSelectAllGrammarSources={handleSelectAllGrammarSources}
           />
         )}
 
@@ -710,6 +816,8 @@ export default function App() {
             }
             onChangeVocabLevel={handleChangeVocabLevel}
             onChangeGrammarLevel={handleChangeGrammarLevel}
+            onToggleGrammarSource={handleToggleGrammarSource}
+            onSelectAllGrammarSources={handleSelectAllGrammarSources}
           />
         )}
 
@@ -755,6 +863,7 @@ export default function App() {
         vocabUid={profile.vocabFirebaseUid}
         grammarUid={profile.grammarFirebaseUid}
         onUpdateKnowledgeBase={handleUpdateKnowledgeBase}
+        onToggleGrammarSource={handleToggleGrammarSource}
       />
 
       {activeReport && (

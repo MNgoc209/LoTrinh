@@ -10,7 +10,11 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { KnowledgeBaseData } from '../types';
-import { parseVocabBackupJson, parseGrammarBackupJson } from '../utils/studyLogic';
+import {
+  parseVocabBackupJson,
+  parseGrammarBackupJson,
+  extractGrammarSourcesSummary,
+} from '../utils/studyLogic';
 import {
   pullVocabFromFirebaseByUid,
   pullGrammarFromFirebaseByUid,
@@ -29,6 +33,7 @@ interface DataSyncModalProps {
     uids?: { vocabUid?: string; grammarUid?: string },
     regenerateRoadmap?: boolean
   ) => Promise<void>;
+  onToggleGrammarSource?: (sourceName: string) => void;
 }
 
 export const DataSyncModal: React.FC<DataSyncModalProps> = ({
@@ -38,6 +43,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   vocabUid: initialVocabUid = '',
   grammarUid: initialGrammarUid = '',
   onUpdateKnowledgeBase,
+  onToggleGrammarSource,
 }) => {
   const [activeTab, setActiveTab] = useState<'backup' | 'firebase'>('backup');
   const [vocabUid, setVocabUid] = useState(initialVocabUid);
@@ -48,6 +54,13 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
+
+  const grammarSourcesSummary = extractGrammarSourcesSummary(
+    knowledgeBase.grammars,
+    knowledgeBase.grammarSources
+  );
+  const activeGrammarSources =
+    knowledgeBase.selectedGrammarSources ?? grammarSourcesSummary.map((s) => s.name);
 
   const handleVocabFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -99,15 +112,17 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         {
           grammars: parsed.grammars,
           grammarReviewHistory: parsed.reviewHistory,
+          grammarSources: parsed.grammarSources,
+          selectedGrammarSources: parsed.grammarSources,
           lastSyncedGrammarAt: Date.now(),
-          syncSourceGrammar: `File: ${file.name} (${parsed.grammars.length} mẫu)`,
+          syncSourceGrammar: `File: ${file.name} (${parsed.grammars.length} mẫu · ${parsed.grammarSources.length} nguồn)`,
         },
         undefined,
         autoRegenerate
       );
 
       setStatusMessage(
-        `Đã nạp thành công ${parsed.grammars.length} mẫu ngữ pháp từ file "${file.name}".`
+        `Đã nạp thành công ${parsed.grammars.length} mẫu ngữ pháp (${parsed.grammarSources.length} nguồn: ${parsed.grammarSources.join(', ')}) từ file "${file.name}". Bạn có thể bật/tắt nguồn muốn học ngay bên dưới!`
       );
     } catch (err: any) {
       setError(err?.message || 'Không thể đọc file Backup Ngữ pháp.');
@@ -157,14 +172,16 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         {
           grammars: res.grammars,
           grammarReviewHistory: res.reviewHistory,
+          grammarSources: res.grammarSources,
+          selectedGrammarSources: res.grammarSources,
           lastSyncedGrammarAt: Date.now(),
-          syncSourceGrammar: `Firebase Cloud (${res.email || res.uid}) · ${res.grammars.length} mẫu`,
+          syncSourceGrammar: `Firebase Cloud (${res.email || res.uid}) · ${res.grammars.length} mẫu · ${res.grammarSources.length} nguồn`,
         },
         { grammarUid: res.uid },
         autoRegenerate
       );
       setStatusMessage(
-        `Đồng bộ đám mây OnTapNguPhap thành công: ${res.grammars.length} mẫu ngữ pháp.`
+        `Đồng bộ đám mây OnTapNguPhap thành công: ${res.grammars.length} mẫu ngữ pháp (${res.grammarSources.length} nguồn: ${res.grammarSources.join(', ')}).`
       );
     } catch (err: any) {
       setError(
@@ -209,13 +226,17 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         {
           grammars: res.grammars,
           grammarReviewHistory: res.reviewHistory,
+          grammarSources: res.grammarSources,
+          selectedGrammarSources: res.grammarSources,
           lastSyncedGrammarAt: Date.now(),
-          syncSourceGrammar: `Firebase UID (${grammarUid.slice(0, 8)}...) · ${res.grammars.length} mẫu`,
+          syncSourceGrammar: `Firebase UID (${grammarUid.slice(0, 8)}...) · ${res.grammars.length} mẫu · ${res.grammarSources.length} nguồn`,
         },
         { grammarUid },
         autoRegenerate
       );
-      setStatusMessage(`Đã kéo ${res.grammars.length} mẫu ngữ pháp từ Firebase nguphapjlpt.`);
+      setStatusMessage(
+        `Đã kéo ${res.grammars.length} mẫu ngữ pháp (${res.grammarSources.length} nguồn: ${res.grammarSources.join(', ')}) từ Firebase nguphapjlpt.`
+      );
     } catch (err: any) {
       setError(err?.message || 'Lỗi tải dữ liệu Ngữ pháp từ Firebase.');
     } finally {
@@ -504,6 +525,39 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Grammar Source Selection ("Chọn nguồn Ngữ pháp đang ôn · Bỏ nguồn không học") */}
+        {grammarSourcesSummary.length > 0 && onToggleGrammarSource && (
+          <div className="p-4 rounded-2xl bg-[#FFF7F8] border border-pink-200/80 space-y-2.5">
+            <div className="text-xs font-bold text-pink-800">
+              Chọn nguồn Ngữ pháp đưa vào lộ trình ({activeGrammarSources.length}/{grammarSourcesSummary.length} nguồn đang bật)
+            </div>
+            <p className="text-[11px] text-stone-600">
+              Bấm vào từng nguồn để chọn học hoặc bỏ qua (các mẫu ngữ pháp thuộc nguồn bị bỏ qua sẽ không đưa vào đề thi):
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              {grammarSourcesSummary.map((src) => {
+                const isSelected = activeGrammarSources.includes(src.name);
+                return (
+                  <button
+                    key={src.name}
+                    type="button"
+                    onClick={() => onToggleGrammarSource(src.name)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-pink-600 text-white border-pink-600'
+                        : 'bg-white text-stone-500 border-stone-200 line-through'
+                    }`}
+                  >
+                    <span>{isSelected ? '✓ Đang học:' : '✕ Đã bỏ:'}</span>
+                    <span className="font-bold">{src.name}</span>
+                    <span className="text-[11px]">({src.totalCount} mẫu)</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}

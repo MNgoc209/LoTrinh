@@ -64,6 +64,7 @@ export async function pullVocabFromFirebaseByUid(uid: string): Promise<{
 export async function pullGrammarFromFirebaseByUid(uid: string): Promise<{
   grammars: ImportedGrammarItem[];
   reviewHistory: Record<string, (string | number)[]>;
+  grammarSources: string[];
 }> {
   const cleanUid = uid.trim();
   if (!cleanUid) throw new Error('Vui lòng nhập UID tài khoản OnTapNguPhap.');
@@ -106,6 +107,7 @@ export async function signInAndPullGrammarCloud(): Promise<{
   email: string | null;
   grammars: ImportedGrammarItem[];
   reviewHistory: Record<string, (string | number)[]>;
+  grammarSources: string[];
 }> {
   const app = getOrInitApp('onTapNguPhapApp', GRAMMAR_FIREBASE_CONFIG);
   const auth = getAuth(app);

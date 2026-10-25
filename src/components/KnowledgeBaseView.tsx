@@ -15,7 +15,12 @@ import {
   ImportedGrammarItem,
   QuizFormatType,
 } from '../types';
-import { computeKnowledgeStats, computeItemPriorityScore } from '../utils/studyLogic';
+import {
+  computeKnowledgeStats,
+  computeItemPriorityScore,
+  extractGrammarSourcesSummary,
+  filterGrammarsBySelectedSources,
+} from '../utils/studyLogic';
 
 interface KnowledgeBaseViewProps {
   knowledgeBase: KnowledgeBaseData;
@@ -28,6 +33,8 @@ interface KnowledgeBaseViewProps {
   ) => Promise<void>;
   onChangeVocabLevel: (id: string, newLevel: number) => void;
   onChangeGrammarLevel: (id: string, newLevel: number) => void;
+  onToggleGrammarSource: (sourceName: string) => void;
+  onSelectAllGrammarSources: () => void;
 }
 
 export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
@@ -36,6 +43,8 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
   onStartTargetedQuiz,
   onChangeVocabLevel,
   onChangeGrammarLevel,
+  onToggleGrammarSource,
+  onSelectAllGrammarSources,
 }) => {
   const [sourceFilter, setSourceFilter] = useState<'all' | 'vocab' | 'grammar'>('all');
   const [levelFilter, setLevelFilter] = useState<'priority' | 'weak_1_3' | 'due' | 'mastered_4_8' | 'all'>('priority');
@@ -43,9 +52,24 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
   const [generatingFormat, setGeneratingFormat] = useState<QuizFormatType | null>(null);
 
   const now = Date.now();
+  const grammarSourcesSummary = useMemo(
+    () => extractGrammarSourcesSummary(knowledgeBase.grammars, knowledgeBase.grammarSources, now),
+    [knowledgeBase.grammars, knowledgeBase.grammarSources, now]
+  );
+  const activeGrammarSources = useMemo(
+    () => knowledgeBase.selectedGrammarSources ?? grammarSourcesSummary.map((s) => s.name),
+    [knowledgeBase.selectedGrammarSources, grammarSourcesSummary]
+  );
+
   const stats = useMemo(
-    () => computeKnowledgeStats(knowledgeBase.vocabulary, knowledgeBase.grammars, now),
-    [knowledgeBase.vocabulary, knowledgeBase.grammars, now]
+    () =>
+      computeKnowledgeStats(
+        knowledgeBase.vocabulary,
+        knowledgeBase.grammars,
+        now,
+        activeGrammarSources
+      ),
+    [knowledgeBase.vocabulary, knowledgeBase.grammars, now, activeGrammarSources]
   );
 
   const filteredVocab = useMemo(() => {
@@ -83,7 +107,12 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
     if (sourceFilter === 'vocab') return [];
     const q = searchQuery.trim().toLowerCase();
 
-    return knowledgeBase.grammars
+    const activeSourceGrammars = filterGrammarsBySelectedSources(
+      knowledgeBase.grammars,
+      activeGrammarSources
+    );
+
+    return activeSourceGrammars
       .filter((g) => {
         if (g.level === 9) return false;
         const isDue = g.level > 0 && g.nextReviewDate > 0 && g.nextReviewDate <= now;
@@ -98,7 +127,8 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
           return (
             g.name.toLowerCase().includes(q) ||
             g.structure.toLowerCase().includes(q) ||
-            g.meaning.toLowerCase().includes(q)
+            g.meaning.toLowerCase().includes(q) ||
+            (g.sourceName && g.sourceName.toLowerCase().includes(q))
           );
         }
         return true;
@@ -108,7 +138,7 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
           computeItemPriorityScore(b.level, b.nextReviewDate, b.level > 0, now) -
           computeItemPriorityScore(a.level, a.nextReviewDate, a.level > 0, now)
       );
-  }, [knowledgeBase.grammars, sourceFilter, levelFilter, searchQuery, now]);
+  }, [knowledgeBase.grammars, activeGrammarSources, sourceFilter, levelFilter, searchQuery, now]);
 
   const handleGenerateClick = async (format: QuizFormatType, label: string) => {
     setGeneratingFormat(format);
@@ -201,6 +231,74 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Grammar Source Selector Panel ("Có nguồn học · Có nguồn bỏ") */}
+        {grammarSourcesSummary.length > 0 && (
+          <div className="pt-5 border-t border-pink-100 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-bold text-stone-900">
+                  Chọn Nguồn Ngữ Pháp đưa vào lộ trình & đề thi ({activeGrammarSources.length}/{grammarSourcesSummary.length} nguồn đang học)
+                </h2>
+                <p className="text-xs text-stone-500">
+                  Vì trong OnTapNguPhap có nguồn bạn đang học và có nguồn bạn tạm bỏ, hãy bật nguồn muốn học và tắt nguồn muốn bỏ qua:
+                </p>
+              </div>
+              {activeGrammarSources.length < grammarSourcesSummary.length && (
+                <button
+                  type="button"
+                  onClick={onSelectAllGrammarSources}
+                  className="px-3 py-1.5 bg-pink-50 hover:bg-pink-100 text-pink-700 border border-pink-200 rounded-xl text-xs font-semibold cursor-pointer self-start sm:self-auto"
+                >
+                  Bật lại tất cả nguồn
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {grammarSourcesSummary.map((src) => {
+                const isSelected = activeGrammarSources.includes(src.name);
+                return (
+                  <button
+                    key={src.name}
+                    type="button"
+                    onClick={() => onToggleGrammarSource(src.name)}
+                    className={`p-3.5 rounded-2xl border text-left transition-colors cursor-pointer flex items-center justify-between gap-3 ${
+                      isSelected
+                        ? 'bg-[#FFF7F8] border-pink-400 text-stone-900 shadow-xs'
+                        : 'bg-stone-50 border-stone-200 text-stone-400 opacity-75'
+                    }`}
+                  >
+                    <div className="space-y-1">
+                      <div className="text-xs font-bold flex items-center gap-1.5">
+                        <span
+                          className={
+                            isSelected ? 'text-pink-700 font-bold' : 'text-stone-500 line-through'
+                          }
+                        >
+                          {src.name}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-stone-500 tabular-nums">
+                        Tổng {src.totalCount} mẫu · Yếu (Lv1–3): {src.weakLv1_3Count} · Đến hạn: {src.dueTodayCount}
+                      </div>
+                    </div>
+
+                    <span
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold shrink-0 ${
+                        isSelected
+                          ? 'bg-pink-600 text-white'
+                          : 'bg-stone-200 text-stone-600'
+                      }`}
+                    >
+                      {isSelected ? '✓ Đang học' : '✕ Đã bỏ'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* AI Custom Question Generator Deck (4 Formats) */}

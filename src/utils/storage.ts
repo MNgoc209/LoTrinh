@@ -15,7 +15,7 @@ const STORAGE_KEYS = {
   PROFILE: 'jlpt_n3_profile',
   ROADMAP: 'jlpt_n3_roadmap_v3_mondai',
   BUGS: 'jlpt_n3_bugs',
-  KNOWLEDGE_BASE: 'jlpt_n3_knowledge_base_v1',
+  KNOWLEDGE_BASE: 'jlpt_n3_knowledge_base_v2',
   STUDY_LOG: 'jlpt_n3_daily_study_log_v1',
   DAILY_REPORTS: 'jlpt_n3_daily_reports_v1',
 };
@@ -148,7 +148,8 @@ export const INITIAL_SEED_GRAMMARS: ImportedGrammarItem[] = [
     level: 1,
     nextReviewDate: now - 2 * hourMs,
     groupName: 'Nghịch đảo / Nhượng bộ',
-    sourceName: 'Shinkanzen N3',
+    sourceName: 'Nguồn 1: Shinkanzen N3',
+    sourceNames: ['Nguồn 1: Shinkanzen N3'],
   },
   {
     id: 'g_202',
@@ -160,7 +161,8 @@ export const INITIAL_SEED_GRAMMARS: ImportedGrammarItem[] = [
     level: 2,
     nextReviewDate: now - hourMs,
     groupName: 'Thời gian',
-    sourceName: 'Mimikara Oboeru N3',
+    sourceName: 'Nguồn 2: Mimikara Oboeru N3',
+    sourceNames: ['Nguồn 2: Mimikara Oboeru N3'],
   },
   {
     id: 'g_203',
@@ -172,7 +174,8 @@ export const INITIAL_SEED_GRAMMARS: ImportedGrammarItem[] = [
     level: 2,
     nextReviewDate: now - 30 * 60000,
     groupName: 'Bổ sung',
-    sourceName: 'Shinkanzen N3',
+    sourceName: 'Nguồn 1: Shinkanzen N3',
+    sourceNames: ['Nguồn 1: Shinkanzen N3'],
   },
   {
     id: 'g_204',
@@ -184,7 +187,8 @@ export const INITIAL_SEED_GRAMMARS: ImportedGrammarItem[] = [
     level: 1,
     nextReviewDate: now - 4 * hourMs,
     groupName: 'Giả định / Ví von',
-    sourceName: 'Shinkanzen N3',
+    sourceName: 'Nguồn 1: Shinkanzen N3',
+    sourceNames: ['Nguồn 1: Shinkanzen N3'],
   },
   {
     id: 'g_205',
@@ -196,7 +200,8 @@ export const INITIAL_SEED_GRAMMARS: ImportedGrammarItem[] = [
     level: 3,
     nextReviewDate: now + dayMs,
     groupName: 'Ý chí / Thói quen',
-    sourceName: 'Soumatome N3',
+    sourceName: 'Nguồn 2: Mimikara Oboeru N3',
+    sourceNames: ['Nguồn 2: Mimikara Oboeru N3'],
   },
   {
     id: 'g_206',
@@ -208,7 +213,8 @@ export const INITIAL_SEED_GRAMMARS: ImportedGrammarItem[] = [
     level: 6,
     nextReviewDate: now + 5 * dayMs,
     groupName: 'Nguyên nhân',
-    sourceName: 'Soumatome N3',
+    sourceName: 'Nguồn 2: Mimikara Oboeru N3',
+    sourceNames: ['Nguồn 2: Mimikara Oboeru N3'],
   },
 ];
 
@@ -221,10 +227,12 @@ export const INITIAL_KNOWLEDGE_BASE: KnowledgeBaseData = {
   grammarReviewHistory: {
     [new Date().toISOString().split('T')[0]]: ['g_201', 'g_202', 'g_204'],
   },
+  grammarSources: ['Nguồn 1: Shinkanzen N3', 'Nguồn 2: Mimikara Oboeru N3'],
+  selectedGrammarSources: ['Nguồn 1: Shinkanzen N3', 'Nguồn 2: Mimikara Oboeru N3'],
   lastSyncedVocabAt: now - 3600000,
   lastSyncedGrammarAt: now - 3600000,
   syncSourceVocab: 'Dữ liệu mẫu OnTapTuVung (10 từ)',
-  syncSourceGrammar: 'Dữ liệu mẫu OnTapNguPhap (6 cấu trúc)',
+  syncSourceGrammar: 'Dữ liệu mẫu OnTapNguPhap (6 cấu trúc · 2 nguồn)',
 };
 
 export const INITIAL_SEED_BUGS: BugRecord[] = [

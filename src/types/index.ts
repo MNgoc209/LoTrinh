@@ -38,6 +38,8 @@ export interface ImportedGrammarItem {
   groupName?: string;
   contextName?: string;
   sourceName?: string;
+  sourceIds?: string[];
+  sourceNames?: string[];
 }
 
 export interface KnowledgeBaseData {
@@ -45,6 +47,8 @@ export interface KnowledgeBaseData {
   grammars: ImportedGrammarItem[];
   vocabReviewHistory: Record<string, (string | number)[]>;
   grammarReviewHistory: Record<string, (string | number)[]>;
+  grammarSources?: string[];
+  selectedGrammarSources?: string[];
   lastSyncedVocabAt?: number;
   lastSyncedGrammarAt?: number;
   syncSourceVocab?: string;

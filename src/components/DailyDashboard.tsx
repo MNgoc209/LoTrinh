@@ -30,6 +30,7 @@ import {
   calculateProgress,
   computeKnowledgeStats,
   selectPriorityTargets,
+  extractGrammarSourcesSummary,
 } from '../utils/studyLogic';
 import {
   JLPT_N3_SECTIONS,
@@ -59,6 +60,8 @@ interface DailyDashboardProps {
     targetMondai?: string,
     category?: JLPTCategory
   ) => void;
+  onToggleGrammarSource: (sourceName: string) => void;
+  onSelectAllGrammarSources: () => void;
 }
 
 export const DailyDashboard: React.FC<DailyDashboardProps> = ({
@@ -77,6 +80,8 @@ export const DailyDashboard: React.FC<DailyDashboardProps> = ({
   onStartAllDueBugs,
   onQuickStartFormat,
   onAddExtraTaskToRoadmap,
+  onToggleGrammarSource,
+  onSelectAllGrammarSources,
 }) => {
   const [loadingTaskId, setLoadingTaskId] = useState<string | null>(null);
   const [loadingQuickFormat, setLoadingQuickFormat] = useState<string | null>(null);
@@ -85,13 +90,26 @@ export const DailyDashboard: React.FC<DailyDashboardProps> = ({
   const progressPercent = calculateProgress(roadmap.tasks);
   const completedTasksCount = roadmap.tasks.filter((t) => t.completed).length;
 
-  const stats = computeKnowledgeStats(knowledgeBase.vocabulary, knowledgeBase.grammars);
+  const grammarSourcesSummary = extractGrammarSourcesSummary(
+    knowledgeBase.grammars,
+    knowledgeBase.grammarSources
+  );
+  const activeGrammarSources =
+    knowledgeBase.selectedGrammarSources ?? grammarSourcesSummary.map((s) => s.name);
+
+  const stats = computeKnowledgeStats(
+    knowledgeBase.vocabulary,
+    knowledgeBase.grammars,
+    Date.now(),
+    activeGrammarSources
+  );
   const { priorityVocab, priorityGrammar } = selectPriorityTargets(
     knowledgeBase.vocabulary,
     knowledgeBase.grammars,
     Date.now(),
     8,
-    5
+    5,
+    activeGrammarSources
   );
 
   const handleTaskStart = async (task: TaskItem) => {
@@ -307,6 +325,59 @@ export const DailyDashboard: React.FC<DailyDashboardProps> = ({
               </button>
             </div>
 
+            {/* Grammar Source Selector ("Có nguồn học · Có nguồn bỏ") */}
+            {grammarSourcesSummary.length > 0 && (
+              <div className="p-3.5 rounded-2xl bg-[#FFF7F8] border border-pink-200/80 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-xs font-bold text-pink-800">
+                      Chọn nguồn Ngữ pháp ôn tập ({activeGrammarSources.length}/{grammarSourcesSummary.length} nguồn đang bật)
+                    </div>
+                    <p className="text-[11px] text-stone-600">
+                      Bấm vào từng nguồn từ OnTapNguPhap để <strong>Chọn học</strong> hoặc <strong>Bỏ qua</strong>. Nguồn bị bỏ qua sẽ không đưa vào lộ trình & đề thi hôm nay.
+                    </p>
+                  </div>
+                  {activeGrammarSources.length < grammarSourcesSummary.length && (
+                    <button
+                      type="button"
+                      onClick={onSelectAllGrammarSources}
+                      className="text-xs font-semibold text-pink-700 hover:underline cursor-pointer shrink-0"
+                    >
+                      Bật lại tất cả nguồn
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {grammarSourcesSummary.map((src) => {
+                    const isSelected = activeGrammarSources.includes(src.name);
+                    return (
+                      <button
+                        key={src.name}
+                        type="button"
+                        onClick={() => onToggleGrammarSource(src.name)}
+                        className={`px-3 py-2 rounded-xl text-xs font-semibold border flex items-center gap-2 transition-colors cursor-pointer ${
+                          isSelected
+                            ? 'bg-pink-600 text-white border-pink-600 shadow-xs'
+                            : 'bg-white text-stone-500 border-stone-200 hover:border-pink-300 line-through'
+                        }`}
+                      >
+                        <span>{isSelected ? '✓ Đang học:' : '✕ Đã bỏ:'}</span>
+                        <span className="font-bold">{src.name}</span>
+                        <span
+                          className={`text-[11px] tabular-nums ${
+                            isSelected ? 'text-pink-100' : 'text-stone-400'
+                          }`}
+                        >
+                          ({src.totalCount} mẫu · {src.weakLv1_3Count} Lv1–3)
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Priority Vocab List */}
               <div className="space-y-2">
@@ -336,23 +407,34 @@ export const DailyDashboard: React.FC<DailyDashboardProps> = ({
               {/* Priority Grammar List */}
               <div className="space-y-2 md:border-l md:border-pink-100 md:pl-5">
                 <div className="text-xs font-bold text-stone-700">
-                  Ngữ pháp ưu tiên (Lv1–Lv3 & Đến hạn)
+                  Ngữ pháp ưu tiên từ nguồn đang bật (Lv1–Lv3 & Đến hạn)
                 </div>
-                <div className="divide-y divide-pink-100 text-xs">
-                  {priorityGrammar.slice(0, 5).map((g) => (
-                    <div key={g.id} className="py-2 flex items-baseline justify-between gap-2">
-                      <div>
-                        <span className="font-bold text-stone-900 font-['Noto_Sans_JP',sans-serif]">
-                          {g.name}
-                        </span>{' '}
-                        <span className="text-stone-600">— {g.meaning}</span>
+                {priorityGrammar.length > 0 ? (
+                  <div className="divide-y divide-pink-100 text-xs">
+                    {priorityGrammar.slice(0, 5).map((g) => (
+                      <div key={g.id} className="py-2 flex items-baseline justify-between gap-2">
+                        <div>
+                          <span className="font-bold text-stone-900 font-['Noto_Sans_JP',sans-serif]">
+                            {g.name}
+                          </span>{' '}
+                          <span className="text-stone-600">— {g.meaning}</span>
+                          {g.sourceName && (
+                            <span className="block text-[11px] text-pink-700 font-medium">
+                              Nguồn: {g.sourceName}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-rose-600 font-semibold tabular-nums shrink-0">
+                          Lv{g.level}
+                        </span>
                       </div>
-                      <span className="text-rose-600 font-semibold tabular-nums shrink-0">
-                        Lv{g.level}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-4 text-xs text-stone-500">
+                    Bạn đã tắt toàn bộ nguồn ngữ pháp. Hãy bật ít nhất 1 nguồn ở trên để đưa ngữ pháp vào lộ trình.
+                  </div>
+                )}
               </div>
             </div>
           </div>

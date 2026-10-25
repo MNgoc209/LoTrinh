@@ -268,3 +268,52 @@ test('isTimeFor19hReport and buildDailyProgressReport evaluate daily performance
   assert.ok(report.weaknesses.some((w) => w.includes('Nghe hiểu')));
   assert.ok(report.recommendedFocusFormats.includes('listening_dialogue'));
 });
+
+test('parseGrammarBackupJson maps OnTapNguPhap sourceIds array and filters by selected sources', () => {
+  const backupWithTwoSources = {
+    sources: [
+      { id: 10, name: 'Nguồn 1: Shinkanzen N3' },
+      { id: 20, name: 'Nguồn 2: Mimikara N3' },
+    ],
+    grammars: [
+      {
+        id: 1,
+        name: '〜にもかかわらず',
+        structure: 'V/N + にもかかわらず',
+        meaning: 'Mặc dù',
+        example: '',
+        level: 1,
+        nextReviewDate: 500,
+        sourceIds: [10],
+      },
+      {
+        id: 2,
+        name: '〜うちに',
+        structure: 'Vる + うちに',
+        meaning: 'Nhân lúc',
+        example: '',
+        level: 2,
+        nextReviewDate: 500,
+        sourceIds: [20],
+      },
+    ],
+  };
+
+  const parsed = parseGrammarBackupJson(backupWithTwoSources);
+  assert.equal(parsed.grammarSources.length, 2);
+  assert.deepEqual(parsed.grammarSources, ['Nguồn 1: Shinkanzen N3', 'Nguồn 2: Mimikara N3']);
+  assert.equal(parsed.grammars[0].sourceName, 'Nguồn 1: Shinkanzen N3');
+  assert.equal(parsed.grammars[1].sourceName, 'Nguồn 2: Mimikara N3');
+
+  // When user selects only Source 1 and skips Source 2
+  const selected = selectPriorityTargets(
+    [],
+    parsed.grammars,
+    1000,
+    5,
+    5,
+    ['Nguồn 1: Shinkanzen N3']
+  );
+  assert.equal(selected.priorityGrammar.length, 1);
+  assert.equal(selected.priorityGrammar[0].name, '〜にもかかわらず');
+});

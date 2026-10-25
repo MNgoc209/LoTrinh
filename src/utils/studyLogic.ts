@@ -155,12 +155,117 @@ export function parseVocabBackupJson(rawData: any): {
   return { vocabulary, reviewHistory };
 }
 
+function parseArrayField(val: any): any[] {
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+/**
+ * Returns the list of source names associated with a grammar item.
+ */
+export function getGrammarItemSources(g: ImportedGrammarItem): string[] {
+  if (Array.isArray(g.sourceNames) && g.sourceNames.length > 0) {
+    return g.sourceNames;
+  }
+  if (g.sourceName && g.sourceName.trim()) {
+    return g.sourceName
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return ['Chưa gán nguồn'];
+}
+
+/**
+ * Filters grammar items by user-selected active grammar sources.
+ * If selectedSources is undefined, all grammar items are included.
+ */
+export function filterGrammarsBySelectedSources(
+  grammars: ImportedGrammarItem[],
+  selectedSources?: string[]
+): ImportedGrammarItem[] {
+  if (!selectedSources) return grammars;
+  const activeSet = new Set(selectedSources);
+  return grammars.filter((g) => {
+    const itemSources = getGrammarItemSources(g);
+    return itemSources.some((src) => activeSet.has(src));
+  });
+}
+
+export interface GrammarSourceSummary {
+  name: string;
+  totalCount: number;
+  weakLv1_3Count: number;
+  dueTodayCount: number;
+  masteredCount: number;
+}
+
+/**
+ * Extracts all available grammar sources with item counts, weak (Lv1-Lv3) counts, and due counts.
+ */
+export function extractGrammarSourcesSummary(
+  grammars: ImportedGrammarItem[],
+  declaredSources?: string[],
+  now = Date.now()
+): GrammarSourceSummary[] {
+  const map = new Map<string, GrammarSourceSummary>();
+
+  const ensureSource = (name: string): GrammarSourceSummary => {
+    const clean = name.trim() || 'Chưa gán nguồn';
+    let entry = map.get(clean);
+    if (!entry) {
+      entry = {
+        name: clean,
+        totalCount: 0,
+        weakLv1_3Count: 0,
+        dueTodayCount: 0,
+        masteredCount: 0,
+      };
+      map.set(clean, entry);
+    }
+    return entry;
+  };
+
+  if (Array.isArray(declaredSources)) {
+    declaredSources.forEach((src) => {
+      if (src && src.trim()) ensureSource(src);
+    });
+  }
+
+  for (const g of grammars) {
+    if (g.level === 9) continue;
+    const itemSources = getGrammarItemSources(g);
+    const isWeak = g.level >= 1 && g.level <= 3;
+    const isDue = g.level > 0 && g.nextReviewDate > 0 && g.nextReviewDate <= now;
+    const isMastered = g.level >= 4 && g.level <= 8;
+
+    for (const srcName of itemSources) {
+      const entry = ensureSource(srcName);
+      entry.totalCount += 1;
+      if (isWeak) entry.weakLv1_3Count += 1;
+      if (isDue) entry.dueTodayCount += 1;
+      if (isMastered) entry.masteredCount += 1;
+    }
+  }
+
+  return Array.from(map.values());
+}
+
 /**
  * Parses and normalizes data from OnTapNguPhap (JSON backup, localStorage export, or Firestore doc).
  */
 export function parseGrammarBackupJson(rawData: any): {
   grammars: ImportedGrammarItem[];
   reviewHistory: Record<string, (string | number)[]>;
+  grammarSources: string[];
 } {
   if (!rawData || typeof rawData !== 'object') {
     throw new Error('Dữ liệu Ngữ pháp không hợp lệ.');
@@ -170,26 +275,34 @@ export function parseGrammarBackupJson(rawData: any): {
   if (Array.isArray(rawData)) {
     rawGrammars = rawData;
   } else if (typeof rawData.grammars === 'string') {
-    try {
-      rawGrammars = JSON.parse(rawData.grammars);
-    } catch {
-      rawGrammars = [];
-    }
+    rawGrammars = parseArrayField(rawData.grammars);
   } else if (Array.isArray(rawData.grammars)) {
     rawGrammars = rawData.grammars;
-  } else if (Array.isArray(rawData.nhg_grammars)) {
-    rawGrammars = rawData.nhg_grammars;
+  } else if (rawData.nhg_grammars) {
+    rawGrammars = parseArrayField(rawData.nhg_grammars);
   } else {
     throw new Error('Không tìm thấy trường "grammars" trong dữ liệu Ngữ pháp.');
   }
 
-  const groups: any[] = Array.isArray(rawData.groups) ? rawData.groups : [];
-  const contexts: any[] = Array.isArray(rawData.contexts) ? rawData.contexts : [];
-  const sources: any[] = Array.isArray(rawData.sources) ? rawData.sources : [];
+  const groups = parseArrayField(rawData.groups ?? rawData.nhg_groups);
+  const contexts = parseArrayField(rawData.contexts ?? rawData.nhg_contexts);
+  const sources = parseArrayField(rawData.sources ?? rawData.nhg_sources);
 
-  const groupMap = new Map(groups.map((g: any) => [String(g.id), String(g.name || '')]));
-  const contextMap = new Map(contexts.map((c: any) => [String(c.id), String(c.name || '')]));
-  const sourceMap = new Map(sources.map((s: any) => [String(s.id), String(s.name || '')]));
+  const groupMap = new Map(
+    groups
+      .filter((g: any) => g && g.id !== undefined)
+      .map((g: any) => [String(g.id), stripHtmlToText(String(g.name || '')).trim()])
+  );
+  const contextMap = new Map(
+    contexts
+      .filter((c: any) => c && c.id !== undefined)
+      .map((c: any) => [String(c.id), stripHtmlToText(String(c.name || '')).trim()])
+  );
+  const sourceMap = new Map(
+    sources
+      .filter((s: any) => s && s.id !== undefined)
+      .map((s: any) => [String(s.id), stripHtmlToText(String(s.name || '')).trim()])
+  );
 
   let reviewHistory: Record<string, (string | number)[]> = {};
   if (typeof rawData.reviewHistory === 'string') {
@@ -202,29 +315,96 @@ export function parseGrammarBackupJson(rawData: any): {
     reviewHistory = rawData.reviewHistory;
   }
 
+  const discoveredSources = new Set<string>();
+  for (const sName of sourceMap.values()) {
+    if (sName) discoveredSources.add(sName);
+  }
+
   const grammars: ImportedGrammarItem[] = rawGrammars
-    .filter((g) => g && g.name)
+    .filter((g) => g && (g.name || g.structure))
     .map((g, idx) => {
       const level = Number.isFinite(Number(g.level)) ? Number(g.level) : 0;
       const nextReviewDate = Number.isFinite(Number(g.nextReviewDate))
         ? Number(g.nextReviewDate)
         : 0;
+
+      const rawGroupIds: string[] = Array.isArray(g.groupIds)
+        ? g.groupIds.map(String)
+        : g.groupId !== undefined && g.groupId !== null
+        ? [String(g.groupId)]
+        : [];
+      const resolvedGroups = rawGroupIds
+        .map((id) => groupMap.get(id))
+        .filter((v): v is string => Boolean(v));
+      const groupName =
+        resolvedGroups.length > 0
+          ? resolvedGroups.join(', ')
+          : g.groupName
+          ? String(g.groupName)
+          : undefined;
+
+      const rawContextIds: string[] = Array.isArray(g.contextIds)
+        ? g.contextIds.map(String)
+        : g.contextId !== undefined && g.contextId !== null
+        ? [String(g.contextId)]
+        : [];
+      const resolvedContexts = rawContextIds
+        .map((id) => contextMap.get(id))
+        .filter((v): v is string => Boolean(v));
+      const contextName =
+        resolvedContexts.length > 0
+          ? resolvedContexts.join(', ')
+          : g.contextName
+          ? String(g.contextName)
+          : undefined;
+
+      const rawSourceIds: string[] = Array.isArray(g.sourceIds)
+        ? g.sourceIds.map(String)
+        : g.sourceId !== undefined && g.sourceId !== null
+        ? [String(g.sourceId)]
+        : [];
+      const resolvedSources = rawSourceIds
+        .map((id) => sourceMap.get(id))
+        .filter((v): v is string => Boolean(v));
+
+      let sourceNames: string[] = [];
+      if (resolvedSources.length > 0) {
+        sourceNames = resolvedSources;
+      } else if (Array.isArray(g.sourceNames) && g.sourceNames.length > 0) {
+        sourceNames = g.sourceNames.map((s: any) => String(s).trim()).filter(Boolean);
+      } else if (g.sourceName && String(g.sourceName).trim()) {
+        sourceNames = String(g.sourceName)
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+      } else {
+        sourceNames = ['Chưa gán nguồn'];
+      }
+
+      sourceNames.forEach((s) => discoveredSources.add(s));
+
       return {
         id: String(g.id ?? `g_${idx}`),
-        name: stripHtmlToText(String(g.name || '')),
+        name: stripHtmlToText(String(g.name || g.structure || '')),
         structure: stripHtmlToText(String(g.structure || '')),
         meaning: stripHtmlToText(String(g.meaning || '')),
         example: stripHtmlToText(String(g.example || '')),
         similarText: g.similarText ? stripHtmlToText(String(g.similarText)) : undefined,
         level: Math.max(0, Math.min(9, level)),
         nextReviewDate,
-        groupName: g.groupId ? groupMap.get(String(g.groupId)) : undefined,
-        contextName: g.contextId ? contextMap.get(String(g.contextId)) : undefined,
-        sourceName: g.sourceId ? sourceMap.get(String(g.sourceId)) : undefined,
+        groupName,
+        contextName,
+        sourceIds: rawSourceIds,
+        sourceNames,
+        sourceName: sourceNames.join(', '),
       };
     });
 
-  return { grammars, reviewHistory };
+  return {
+    grammars,
+    reviewHistory,
+    grammarSources: Array.from(discoveredSources),
+  };
 }
 
 /**
@@ -264,12 +444,15 @@ export function selectPriorityTargets(
   grammars: ImportedGrammarItem[],
   now = Date.now(),
   maxVocab = 12,
-  maxGrammar = 6
+  maxGrammar = 6,
+  selectedGrammarSources?: string[]
 ): {
   priorityVocab: ImportedVocabItem[];
   priorityGrammar: ImportedGrammarItem[];
   targetReferences: TargetedReference[];
 } {
+  const activeGrammars = filterGrammarsBySelectedSources(grammars, selectedGrammarSources);
+
   const scoredVocab = vocabulary
     .filter((v) => v.level !== 9)
     .map((v) => ({
@@ -278,7 +461,7 @@ export function selectPriorityTargets(
     }))
     .sort((a, b) => b.score - a.score);
 
-  const scoredGrammar = grammars
+  const scoredGrammar = activeGrammars
     .filter((g) => g.level !== 9)
     .map((g) => ({
       item: g,
@@ -329,10 +512,15 @@ export interface KnowledgeSummaryStats {
 export function computeKnowledgeStats(
   vocabulary: ImportedVocabItem[],
   grammars: ImportedGrammarItem[],
-  now = Date.now()
+  now = Date.now(),
+  selectedGrammarSources?: string[]
 ): KnowledgeSummaryStats {
   const activeVocab = vocabulary.filter((v) => v.level !== 9);
-  const activeGrammar = grammars.filter((g) => g.level !== 9);
+  const sourceFilteredGrammars = filterGrammarsBySelectedSources(
+    grammars,
+    selectedGrammarSources
+  );
+  const activeGrammar = sourceFilteredGrammars.filter((g) => g.level !== 9);
 
   return {
     vocabTotal: activeVocab.length,
