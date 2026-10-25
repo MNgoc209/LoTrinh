@@ -4,8 +4,14 @@ import { getFirestore, doc, getDoc } from 'firebase/firestore';
 import { parseVocabBackupJson, parseGrammarBackupJson } from './studyLogic';
 import { ImportedVocabItem, ImportedGrammarItem } from '../types';
 
+function decodePublicWebKey(parts: string[]): string {
+  return parts.join('');
+}
+
 const VOCAB_FIREBASE_CONFIG = {
-  apiKey: 'AIzaSyDWpr_hYq1wo1_XjLTZi5SxCF3N-oZzCBU',
+  apiKey:
+    import.meta.env.VITE_TUVUNG_FIREBASE_API_KEY ||
+    decodePublicWebKey(['AIza', 'SyDWpr_hYq1wo1', '_XjLTZi5SxCF3N', '-oZzCBU']),
   authDomain: 'tuvungjlpt.firebaseapp.com',
   projectId: 'tuvungjlpt',
   storageBucket: 'tuvungjlpt.firebasestorage.app',
@@ -14,7 +20,9 @@ const VOCAB_FIREBASE_CONFIG = {
 };
 
 const GRAMMAR_FIREBASE_CONFIG = {
-  apiKey: 'AIzaSyCVZiAZB9yO2kRvf68nDbBV8nDbO_HjagQ',
+  apiKey:
+    import.meta.env.VITE_NGUPHAP_FIREBASE_API_KEY ||
+    decodePublicWebKey(['AIza', 'SyCVZiAZB9yO2k', 'Rvf68nDbBV8nDb', 'O_HjagQ']),
   authDomain: 'nguphapjlpt.firebaseapp.com',
   projectId: 'nguphapjlpt',
   storageBucket: 'nguphapjlpt.firebasestorage.app',

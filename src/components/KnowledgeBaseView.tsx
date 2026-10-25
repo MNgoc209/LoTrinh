@@ -222,62 +222,8 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
             disabled={generatingFormat !== null}
             onClick={() =>
               handleGenerateClick(
-                'reading_integrated',
-                'Đọc hiểu Đoản & Trung văn lồng ghép Từ & Ngữ pháp'
-              )
-            }
-            className="p-4 rounded-2xl border border-pink-200 bg-[#FFF7F8] hover:bg-pink-100/70 text-left space-y-2 transition-colors cursor-pointer"
-          >
-            <div className="flex items-center justify-between text-pink-700">
-              <BookOpen className="w-4 h-4" />
-              {generatingFormat === 'reading_integrated' ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Play className="w-3.5 h-3.5 fill-current" />
-              )}
-            </div>
-            <div className="text-sm font-bold text-stone-900">
-              1. Đọc hiểu lồng ghép
-            </div>
-            <div className="text-xs text-stone-600 leading-relaxed">
-              Đoản & Trung văn cài cắm các từ và ngữ pháp đang lọc.
-            </div>
-          </button>
-
-          <button
-            type="button"
-            disabled={generatingFormat !== null}
-            onClick={() =>
-              handleGenerateClick(
-                'grammar_mondai_3_4',
-                'Ngữ pháp thực chiến: Mondai 3 dấu sao ★ & Mondai 4 đục lỗ'
-              )
-            }
-            className="p-4 rounded-2xl border border-pink-200 bg-[#FFF7F8] hover:bg-pink-100/70 text-left space-y-2 transition-colors cursor-pointer"
-          >
-            <div className="flex items-center justify-between text-pink-700">
-              <FileText className="w-4 h-4" />
-              {generatingFormat === 'grammar_mondai_3_4' ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Play className="w-3.5 h-3.5 fill-current" />
-              )}
-            </div>
-            <div className="text-sm font-bold text-stone-900">
-              2. Mondai 3 ★ & Mondai 4
-            </div>
-            <div className="text-xs text-stone-600 leading-relaxed">
-              Sắp xếp câu dấu sao & đục lỗ đoạn văn theo cấu trúc đang ôn.
-            </div>
-          </button>
-
-          <button
-            type="button"
-            disabled={generatingFormat !== null}
-            onClick={() =>
-              handleGenerateClick(
                 'vocab_synonyms_usage',
-                'Từ vựng nâng cao: Tìm từ đồng nghĩa & Cách dùng từ đúng'
+                '1. Từ vựng (Mondai 1–5): Đọc/Viết Hán tự, Điền từ, Đồng nghĩa & Cách dùng từ (用法)'
               )
             }
             className="p-4 rounded-2xl border border-pink-200 bg-[#FFF7F8] hover:bg-pink-100/70 text-left space-y-2 transition-colors cursor-pointer"
@@ -291,10 +237,64 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
               )}
             </div>
             <div className="text-sm font-bold text-stone-900">
-              3. Từ đồng nghĩa & Cách dùng
+              1. Từ vựng (Mondai 1–5)
             </div>
             <div className="text-xs text-stone-600 leading-relaxed">
-              Mondai 3 & 4 kiểm tra sắc thái dùng từ trong câu.
+              M1: Đọc Kanji · M2: Viết Kanji · M3: Điền từ · M4: Đồng nghĩa · M5: Cách dùng từ (用法).
+            </div>
+          </button>
+
+          <button
+            type="button"
+            disabled={generatingFormat !== null}
+            onClick={() =>
+              handleGenerateClick(
+                'grammar_mondai_3_4',
+                '2. Ngữ pháp (Mondai 1–3): Câu đơn, Sắp xếp dấu sao ★ & Đục lỗ đoạn văn'
+              )
+            }
+            className="p-4 rounded-2xl border border-pink-200 bg-[#FFF7F8] hover:bg-pink-100/70 text-left space-y-2 transition-colors cursor-pointer"
+          >
+            <div className="flex items-center justify-between text-pink-700">
+              <FileText className="w-4 h-4" />
+              {generatingFormat === 'grammar_mondai_3_4' ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Play className="w-3.5 h-3.5 fill-current" />
+              )}
+            </div>
+            <div className="text-sm font-bold text-stone-900">
+              2. Ngữ pháp (Mondai 1–3)
+            </div>
+            <div className="text-xs text-stone-600 leading-relaxed">
+              M1: Ngữ pháp câu đơn · M2: Sắp xếp câu dấu sao ★ · M3: Ngữ pháp đục lỗ đoạn văn.
+            </div>
+          </button>
+
+          <button
+            type="button"
+            disabled={generatingFormat !== null}
+            onClick={() =>
+              handleGenerateClick(
+                'reading_integrated',
+                '3. Đọc hiểu (Mondai 4–7): Đoản văn, Trung văn, Trường văn & Tìm kiếm thông tin'
+              )
+            }
+            className="p-4 rounded-2xl border border-pink-200 bg-[#FFF7F8] hover:bg-pink-100/70 text-left space-y-2 transition-colors cursor-pointer"
+          >
+            <div className="flex items-center justify-between text-pink-700">
+              <BookOpen className="w-4 h-4" />
+              {generatingFormat === 'reading_integrated' ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Play className="w-3.5 h-3.5 fill-current" />
+              )}
+            </div>
+            <div className="text-sm font-bold text-stone-900">
+              3. Đọc hiểu (Mondai 4–7)
+            </div>
+            <div className="text-xs text-stone-600 leading-relaxed">
+              M4: Đoản văn (150 chữ) · M5: Trung văn (350 chữ) · M6: Trường văn · M7: Tìm thông tin.
             </div>
           </button>
 
@@ -304,7 +304,7 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
             onClick={() =>
               handleGenerateClick(
                 'listening_dialogue',
-                'Hội thoại Nghe hiểu (Choukai) chứa từ vựng & ngữ pháp vừa ôn'
+                '4. Nghe hiểu (Mondai 1–5): Nghe nhiệm vụ, Điểm chính, Khái quát, Giao tiếp & Phản xạ'
               )
             }
             className="p-4 rounded-2xl border border-pink-200 bg-[#FFF7F8] hover:bg-pink-100/70 text-left space-y-2 transition-colors cursor-pointer"
@@ -318,10 +318,10 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
               )}
             </div>
             <div className="text-sm font-bold text-stone-900">
-              4. Hội thoại Nghe hiểu
+              4. Nghe hiểu (Mondai 1–5)
             </div>
             <div className="text-xs text-stone-600 leading-relaxed">
-              Nghe hội thoại có phát âm tiếng Nhật chứa từ & ngữ pháp mục tiêu.
+              M1: Nhiệm vụ · M2: Điểm chính · M3: Khái quát · M4: Tình huống · M5: Phản xạ nhanh.
             </div>
           </button>
         </div>

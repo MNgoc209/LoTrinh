@@ -38,6 +38,10 @@ import {
   isTimeFor19hReport,
 } from './utils/studyLogic';
 import {
+  generateClientTargetedQuestions,
+  buildStructuredDailyTasks,
+} from './utils/jlptMondaiTaxonomy';
+import {
   DailyRoadmap,
   UserProfile,
   BugRecord,
@@ -183,7 +187,9 @@ export default function App() {
   const handleAddExtraTaskToRoadmap = (
     format: QuizFormatType,
     title: string,
-    categoryLabel: string
+    categoryLabel: string,
+    targetMondai?: string,
+    category?: JLPTCategory
   ) => {
     const { priorityVocab, priorityGrammar } = selectPriorityTargets(
       knowledgeBase.vocabulary,
@@ -200,13 +206,13 @@ export default function App() {
     const newTask: TaskItem = {
       id: `task_bonus_${Date.now()}`,
       title,
-      category: categoryMap[format] || 'grammar',
+      category: category || categoryMap[format] || 'grammar',
       categoryLabel,
       quizFormat: format,
-      estimatedMinutes: 20,
-      questionCount: 4,
-      targetMondai: 'Chặng mở rộng theo yêu cầu',
-      reason: 'Bạn chủ động thêm vào lộ trình hôm nay để rèn sâu kỹ năng này',
+      estimatedMinutes: 15,
+      questionCount: 5,
+      targetMondai: targetMondai || 'Chặng mở rộng theo Mondai',
+      reason: 'Bạn chủ động ghim dạng Mondai này vào lộ trình hôm nay để rèn sâu',
       targetWords: priorityVocab.slice(0, 3).map((v) => `${v.word} (Lv${v.level})`),
       targetGrammars: priorityGrammar.slice(0, 2).map((g) => `${g.name} (Lv${g.level})`),
       completed: false,
@@ -216,7 +222,7 @@ export default function App() {
 
     setRoadmap((prev) => ({
       ...prev,
-      totalEstimatedMinutes: prev.totalEstimatedMinutes + 20,
+      totalEstimatedMinutes: prev.totalEstimatedMinutes + 15,
       tasks: [...prev.tasks, newTask],
     }));
 
@@ -248,12 +254,23 @@ export default function App() {
           count: 4,
         }),
       });
-      const data = await response.json();
-      if (data.success && Array.isArray(data.questions) && data.questions.length > 0) {
-        generatedQuestions = data.questions;
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && Array.isArray(data.questions) && data.questions.length > 0) {
+          generatedQuestions = data.questions;
+        }
       }
-    } catch (err) {
-      console.warn('Fallback to local targeted questions', err);
+    } catch {
+      // Static GitHub Pages or offline mode — fallback to client-side generator below
+    }
+
+    if (generatedQuestions.length === 0) {
+      generatedQuestions = generateClientTargetedQuestions(
+        quizFormat,
+        vocabItems,
+        grammarItems,
+        customTitle
+      );
     }
 
     const categoryMap: Record<QuizFormatType, string> = {
@@ -412,7 +429,6 @@ export default function App() {
       todayStudyMinutes: prev.todayStudyMinutes + 15,
     }));
 
-    // Record into Today's Study Log for the 19:00 Progress Report
     setStudyLog((prevLog) => {
       const updatedSkills = { ...prevLog.skillStats };
       for (const [cat, stat] of Object.entries(results.categoryBreakdown)) {
@@ -515,34 +531,62 @@ export default function App() {
       kbToUse.grammars
     );
 
-    const response = await fetch('/api/roadmap/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        daysRemaining,
-        examDateStr: examDate,
-        confidence,
-        pendingBugsCount: dueBugs.length,
-        personalNotes: confidence.notes,
-        priorityVocab,
-        priorityGrammar,
-        studyIntensity: profile.studyIntensity || 'intensive',
-        previousReport: previousReport || dailyReports[0] || null,
-      }),
-    });
+    let generatedRoadmap: DailyRoadmap | null = null;
+    try {
+      const response = await fetch('/api/roadmap/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          daysRemaining,
+          examDateStr: examDate,
+          confidence,
+          pendingBugsCount: dueBugs.length,
+          personalNotes: confidence.notes,
+          priorityVocab,
+          priorityGrammar,
+          studyIntensity: profile.studyIntensity || 'intensive',
+          previousReport: previousReport || dailyReports[0] || null,
+        }),
+      });
 
-    const resData = await response.json();
-    if (!resData.success) {
-      throw new Error(resData.error || 'Lỗi khi tạo lộ trình');
+      if (response.ok) {
+        const resData = await response.json();
+        if (resData.success && resData.roadmap) {
+          generatedRoadmap = {
+            ...resData.roadmap,
+            date: new Date().toISOString().split('T')[0],
+            daysRemaining,
+          };
+        }
+      }
+    } catch {
+      // Static GitHub Pages fallback
     }
 
-    const newRoadmap: DailyRoadmap = {
-      ...resData.roadmap,
-      date: new Date().toISOString().split('T')[0],
-      daysRemaining,
-    };
+    if (!generatedRoadmap) {
+      const structuredTasks = buildStructuredDailyTasks({
+        pendingBugsCount: dueBugs.length,
+        priorityVocab,
+        priorityGrammar,
+      });
+      generatedRoadmap = {
+        date: new Date().toISOString().split('T')[0],
+        daysRemaining,
+        focusMessage: previousReport
+          ? `Lộ trình thích ứng dựa trên Báo cáo 19:00 (${previousReport.date}): Chia rõ 4 Mục (Từ vựng, Ngữ pháp, Đọc hiểu, Nghe hiểu) với từng Mondai cụ thể.`
+          : `Chiến dịch ${daysRemaining} ngày trước kỳ thi: Phân bổ ${priorityVocab.length} từ vựng & ${priorityGrammar.length} ngữ pháp Lv1–Lv3 vào 4 Mục với từng Mondai rõ ràng.`,
+        targetScoreGoal: 'Hoàn thành đầy đủ các Mondai trọng tâm của 4 kỹ năng & Tổng kết lúc 19:00',
+        totalEstimatedMinutes: structuredTasks.reduce((s, t) => s + t.estimatedMinutes, 0),
+        tasks: structuredTasks,
+        basedOnReportDate: previousReport?.date,
+        tipsForToday: [
+          'Mỗi mục đã được tách rõ theo đúng cấu trúc Mondai của đề thi thật JLPT N3.',
+          'Vào lúc 19:00, hệ thống sẽ tổng hợp Báo cáo tiến độ để tạo lộ trình thích ứng cho ngày kế tiếp.',
+        ],
+      };
+    }
 
-    setRoadmap(newRoadmap);
+    setRoadmap(generatedRoadmap);
     setProfile((prev) => ({
       ...prev,
       examDate,
@@ -555,7 +599,7 @@ export default function App() {
     confidence: ConfidenceAssessment;
   }) => {
     await handleGenerateRoadmapWithKB(data.examDate, data.confidence, knowledgeBase);
-    showToast('Đã tạo lộ trình 7 chặng tích hợp mục tiêu Lv1–Lv3 & Báo cáo 19:00!');
+    showToast('Đã cập nhật lộ trình chia rõ 4 Kỹ năng & từng Mondai cụ thể!');
   };
 
   const handleGenerateNextDayFromReport = async (report: DailyProgressReport) => {
@@ -725,7 +769,7 @@ export default function App() {
 
       {/* Quiet Footer */}
       <footer className="border-t border-pink-200/60 py-5 text-center text-xs text-stone-500 bg-white/50">
-        JLPT N3 AI Tracker · Tích hợp lịch sử học từ OnTapTuVung & OnTapNguPhap · Tự động tổng kết 19:00 hàng ngày
+        JLPT N3 AI Tracker · Tích hợp lịch sử học từ OnTapTuVung & OnTapNguPhap · Chia rõ 4 Kỹ năng & 17 Mondai
       </footer>
     </div>
   );
