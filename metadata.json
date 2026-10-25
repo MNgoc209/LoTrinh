@@ -1,0 +1,6 @@
+{
+  "name": "JLPT N3 AI Tracker",
+  "description": "Lộ trình ôn thi JLPT N3 thông minh với AI, Daily Dashboard, Quiz luyện đề và Bug Tracker lặp lại ngắt quãng.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
