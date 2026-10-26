@@ -67,6 +67,7 @@ export interface TargetedReference {
 
 export interface TaskItem {
   id: string;
+  mondaiId?: string;
   title: string;
   category: JLPTCategory;
   categoryLabel: string;
@@ -188,4 +189,5 @@ export interface UserProfile {
   studyIntensity?: StudyIntensity;
   vocabFirebaseUid?: string;
   grammarFirebaseUid?: string;
+  themeColor?: 'sky' | 'sakura';
 }

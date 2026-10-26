@@ -1,37 +1,58 @@
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap');
 @import "tailwindcss";
 
-@theme {
-  /* Muted Dusty Rose / Warm Blush-Taupe Palette (Soft, Low-Saturation, Non-Glaring) */
-  --color-pink-50: #F8F4F5;
-  --color-pink-100: #F1E9EB;
-  --color-pink-200: #E3D5D8;
-  --color-pink-300: #D1BBC0;
-  --color-pink-400: #B998A0;
-  --color-pink-500: #9E7882;
-  --color-pink-600: #87606A;
-  --color-pink-700: #6F4D56;
-  --color-pink-800: #593D45;
-  --color-pink-900: #473137;
-  --color-pink-950: #2C1D21;
+:root,
+[data-theme="sky"] {
+  /* Soothing Pastel Light Sky Blue Palette (Xanh biển nhạt dịu mắt) */
+  --bg-canvas: #F3F8FC;
+  --c-50: #ECF5FC;
+  --c-100: #DCEBFA;
+  --c-200: #C2DDF6;
+  --c-300: #9AC6EE;
+  --c-400: #6CA8E1;
+  --c-500: #4B8DD0;
+  --c-600: #3978BA;
+  --c-700: #2C619B;
+  --c-800: #224B79;
+  --c-900: #1A395C;
+  --c-950: #10243C;
+}
 
-  --color-rose-50: #F9F4F4;
-  --color-rose-100: #F2E8E8;
-  --color-rose-200: #E4D3D3;
-  --color-rose-300: #D2B7B7;
-  --color-rose-400: #BA9393;
-  --color-rose-500: #A27575;
-  --color-rose-600: #8C5E5E;
-  --color-rose-700: #744C4C;
-  --color-rose-800: #5D3C3C;
-  --color-rose-900: #4A3030;
-  --color-rose-950: #2E1D1D;
+[data-theme="sakura"] {
+  /* Soothing Pastel Soft Blush Pink Palette (Hồng phấn nhạt dịu mắt) */
+  --bg-canvas: #FDF6F8;
+  --c-50: #FCEEF3;
+  --c-100: #F8DFE8;
+  --c-200: #F0C6D7;
+  --c-300: #E4A5BF;
+  --c-400: #D580A3;
+  --c-500: #C3638B;
+  --c-600: #AD4E76;
+  --c-700: #913E61;
+  --c-800: #75324E;
+  --c-900: #5B263C;
+  --c-950: #3A1726;
+}
+
+@theme inline {
+  --color-pink-50: var(--c-50);
+  --color-pink-100: var(--c-100);
+  --color-pink-200: var(--c-200);
+  --color-pink-300: var(--c-300);
+  --color-pink-400: var(--c-400);
+  --color-pink-500: var(--c-500);
+  --color-pink-600: var(--c-600);
+  --color-pink-700: var(--c-700);
+  --color-pink-800: var(--c-800);
+  --color-pink-900: var(--c-900);
+  --color-pink-950: var(--c-950);
 }
 
 body {
   font-family: 'Plus Jakarta Sans', 'Noto Sans JP', 'Hiragino Sans', 'Meiryo', sans-serif;
-  background-color: #FAF7F7;
-  color: #292524;
+  background-color: var(--bg-canvas);
+  color: #1E293B;
+  transition: background-color 0.2s ease;
 }
 
 @layer utilities {

@@ -189,7 +189,7 @@ export const BugTracker: React.FC<BugTrackerProps> = ({
                 </div>
 
                 {/* Explanation */}
-                <div className="p-3.5 bg-[#FAF7F7] rounded-xl border border-pink-200/70 text-xs text-stone-700 leading-relaxed whitespace-pre-line font-['Noto_Sans_JP','Plus_Jakarta_Sans',sans-serif]">
+                <div className="p-3.5 bg-pink-50/60 rounded-xl border border-pink-200/70 text-xs text-stone-700 leading-relaxed whitespace-pre-line font-['Noto_Sans_JP','Plus_Jakarta_Sans',sans-serif]">
                   <span className="font-bold text-pink-800">Giải thích: </span>
                   {bug.explanation}
                 </div>

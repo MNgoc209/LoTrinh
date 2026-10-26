@@ -3,6 +3,10 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type, Modality } from '@google/genai';
+import {
+  generateClientTargetedQuestions,
+  resolveMondaiId,
+} from './src/utils/jlptMondaiTaxonomy.ts';
 
 dotenv.config();
 
@@ -428,7 +432,7 @@ app.post('/api/tts/listening', async (req, res) => {
         : 'Speak naturally and clearly at standard JLPT N3 listening exam pace.';
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-preview-tts',
+      model: 'gemini-3.8-flash-tts',
       contents: [{ parts: [{ text: `${paceNote}\n${normalizedLines}` }] }],
       config: {
         responseModalities: [Modality.AUDIO],
@@ -454,7 +458,12 @@ app.post('/api/tts/listening', async (req, res) => {
       return res.json({ success: false, fallbackToBrowser: true });
     }
 
-    const wavBase64 = pcm16ToWavBase64(inlineData.data, 24000);
+    const rawBytes = Buffer.from(inlineData.data, 'base64');
+    const isAlreadyWav =
+      rawBytes.length > 4 && rawBytes.subarray(0, 4).toString('ascii') === 'RIFF';
+    const wavBase64 = isAlreadyWav
+      ? inlineData.data
+      : pcm16ToWavBase64(inlineData.data, 24000);
     return res.json({
       success: true,
       audioDataUrl: `data:audio/wav;base64,${wavBase64}`,
@@ -465,111 +474,28 @@ app.post('/api/tts/listening', async (req, res) => {
   }
 });
 
-// Helper to build instant targeted questions from user's imported Vocab & Grammar if offline/fallback
-function buildDynamicFallbackQuestions(
-  quizFormat: string,
-  targetVocab: any[],
-  targetGrammar: any[]
-) {
-  const vList = targetVocab.length > 0 ? targetVocab : [];
-  const gList = targetGrammar.length > 0 ? targetGrammar : [];
-  const questions: any[] = [];
-
-  if (quizFormat === 'vocab_synonyms_usage' && vList.length > 0) {
-    vList.slice(0, 4).forEach((v: any, idx: number) => {
-      const distractors = vList
-        .filter((other: any) => other.word !== v.word)
-        .slice(0, 3)
-        .map((o: any) => `${o.word}（${o.reading}）: ${o.meaning}`);
-      while (distractors.length < 3) {
-        distractors.push(`参考（さんこう）: Tham khảo phương án ${distractors.length + 1}`);
-      }
-      questions.push({
-        id: `dyn_vocab_${Date.now()}_${idx}`,
-        category: 'vocabulary',
-        subCategory: 'Mondai 3-4 · Từ đồng nghĩa & Cách dùng từ trong ngữ cảnh',
-        title: `Vận dụng từ vựng từ OnTapTuVung: 【${v.word}】 (Lv${v.level})`,
-        questionText: `Trong kỳ thi JLPT N3, từ 【${v.word}（${v.reading}）】 được dùng với ý nghĩa và ngữ cảnh nào sau đây là chính xác nhất?`,
-        options: [
-          `Đúng ngữ cảnh: "${v.meaning}" — sử dụng cho 【${v.word}】`,
-          distractors[0],
-          distractors[1],
-          distractors[2],
-        ],
-        correctAnswerIndex: 0,
-        explanation: `Từ 【${v.word}】 đọc là 「${v.reading}」, mang nghĩa: "${v.meaning}". Hiện từ này đang ở Level ${v.level} trong kho OnTapTuVung của bạn.`,
-        usedTargets: [
-          {
-            type: 'vocab',
-            id: String(v.id),
-            title: v.word,
-            readingOrStructure: v.reading,
-            meaning: v.meaning,
-            level: v.level,
-          },
-        ],
-      });
-    });
-  }
-
-  if (quizFormat === 'grammar_mondai_3_4' && gList.length > 0) {
-    gList.slice(0, 4).forEach((g: any, idx: number) => {
-      const distractors = gList
-        .filter((other: any) => other.name !== g.name)
-        .slice(0, 3)
-        .map((o: any) => `${o.name} (${o.meaning})`);
-      while (distractors.length < 3) {
-        distractors.push(`〜に関して (Liên quan đến...)`);
-      }
-      questions.push({
-        id: `dyn_gram_${Date.now()}_${idx}`,
-        category: 'grammar',
-        subCategory: 'Mondai 3 ★ & Mondai 4 · Ngữ pháp thực chiến',
-        title: `Vận dụng cấu trúc từ OnTapNguPhap: 【${g.name}】 (Lv${g.level})`,
-        passage: g.example
-          ? `Câu mẫu trong sổ tay của bạn:\n「${g.example}」`
-          : undefined,
-        questionText: `Để diễn đạt ý nghĩa "${g.meaning}" theo đúng quy tắc kết nối 「${g.structure || g.name}」, cấu trúc nào sau đây là chính xác?`,
-        options: [
-          `${g.name} — Cấu trúc: ${g.structure || g.name}`,
-          distractors[0],
-          distractors[1],
-          distractors[2],
-        ],
-        correctAnswerIndex: 0,
-        explanation: `Mẫu ngữ pháp 【${g.name}】 (Cấu trúc: ${g.structure || g.name}) mang nghĩa "${g.meaning}". ${
-          g.similarText ? `\nLưu ý phân biệt: ${g.similarText}` : ''
-        }`,
-        usedTargets: [
-          {
-            type: 'grammar',
-            id: String(g.id),
-            title: g.name,
-            readingOrStructure: g.structure || g.name,
-            meaning: g.meaning,
-            level: g.level,
-            note: g.similarText || g.example,
-          },
-        ],
-      });
-    });
-  }
-
-  return questions;
-}
-
-// 3. Generate Targeted Quiz Questions from OnTapTuVung & OnTapNguPhap history
+// 3. Generate Targeted Quiz Questions from OnTapTuVung & OnTapNguPhap history (Supports all 17 Mondai)
 app.post('/api/quiz/generate-targeted', async (req, res) => {
   try {
     const {
       quizFormat = 'reading_integrated',
+      mondaiId,
+      customTitle = '',
       targetVocab = [],
       targetGrammar = [],
       count = 4,
     } = req.body;
 
+    const resolvedMondai = resolveMondaiId(quizFormat, mondaiId, customTitle);
+
     if (!ai) {
-      const fallbackQs = buildDynamicFallbackQuestions(quizFormat, targetVocab, targetGrammar);
+      const fallbackQs = generateClientTargetedQuestions(
+        quizFormat,
+        targetVocab,
+        targetGrammar,
+        customTitle,
+        resolvedMondai
+      );
       return res.json({ success: true, fallback: true, questions: fallbackQs });
     }
 
@@ -586,41 +512,103 @@ app.post('/api/quiz/generate-targeted', async (req, res) => {
       )
       .join('\n');
 
-    let formatInstruction = '';
-    if (quizFormat === 'reading_integrated') {
-      formatInstruction = `
-DẠNG BÀI YÊU CẦU: Bài Đọc hiểu JLPT N3 (Đoản văn & Trung văn).
-- Bắt buộc viết đoạn văn tiếng Nhật ("passage" dài 160-280 chữ) tự nhiên, chuẩn phong cách đề thi JLPT N3.
-- Trong đoạn văn PHẢI LỒNG GHÉP trực tiếp các từ vựng và mẫu ngữ pháp trong danh sách mục tiêu của học viên (bọc các từ/ngữ pháp mục tiêu trong dấu ngoặc 【...】 để học viên dễ nhận diện).
-- Câu hỏi ("questionText") hỏi về ý kiến tác giả, nguyên nhân, hoặc nội dung khớp với đoạn văn.
-- category đặt là "reading".
-`;
-    } else if (quizFormat === 'grammar_mondai_3_4') {
-      formatInstruction = `
-DẠNG BÀI YÊU CẦU: Ngữ pháp thực chiến Mondai 3 (Sắp xếp câu dấu sao ★) và Mondai 4 (Đục lỗ ngữ pháp trong đoạn văn).
-- Tạo câu hỏi sắp xếp 4 mảnh ghép vào chỗ trống ＿＿＿ ＿＿＿ ★ ＿＿＿ (Mondai 3) HOẶC đoạn văn ngắn đục lỗ (Mondai 4) kiểm tra trực tiếp các cấu trúc ngữ pháp và từ vựng trong danh sách của học viên.
-- Giải thích rõ trật tự câu hoàn chỉnh và lưu ý bẫy ngữ pháp tương đương (nếu có).
-- category đặt là "grammar".
-`;
-    } else if (quizFormat === 'vocab_synonyms_usage') {
-      formatInstruction = `
-DẠNG BÀI YÊU CẦU: Từ vựng nâng cao JLPT N3: Mondai 3 (Tìm từ đồng nghĩa/cận nghĩa) và Mondai 4 (Cách dùng từ đúng trong câu - 用法).
-- Kiểm tra trực tiếp các từ vựng trong danh sách của học viên.
-- Với câu Mondai 4 (Cách dùng từ): 4 phương án là 4 câu tiếng Nhật hoàn chỉnh có chứa từ đó (1 câu dùng đúng tự nhiên, 3 câu dùng sai ngữ cảnh).
-- category đặt là "vocabulary".
-`;
-    } else if (quizFormat === 'listening_dialogue') {
-      formatInstruction = `
-DẠNG BÀI YÊU CẦU: Hội thoại Nghe hiểu JLPT N3 (Choukai Mondai 1 & 2).
-- Bắt buộc tạo trường "listeningScript" là đoạn hội thoại giữa 男： và 女： (4-6 lượt lời ngắn gọn, rõ ràng, mỗi lượt lời trên 1 dòng bắt đầu bằng "男：" hoặc "女：") sử dụng tự nhiên các từ vựng và cấu trúc ngữ pháp trong danh sách của học viên.
-- Câu hỏi ("questionText") hỏi hành động tiếp theo của nhân vật hoặc điểm chính của cuộc hội thoại.
-- category đặt là "listening".
-`;
-    }
+    const mondaiInstructionsMap: Record<string, string> = {
+      vocab_m1_kanji_reading: `
+DẠNG BÀI BẮT BUỘC: Từ vựng · Mondai 1 — Cách đọc Hán tự (漢字読み).
+- Tạo câu văn tiếng Nhật hoàn chỉnh có từ Hán tự mục tiêu đặt trong ngoặc 【Từ_Kanji】.
+- 4 phương án (options) PHẢI hoàn toàn bằng chữ Hiragana (1 đáp án đúng + 3 đáp án nhiễu bẫy trường âm, âm ngắt っ, âm đục). TUYỆT ĐỐI KHÔNG kèm nghĩa tiếng Việt trong options.
+- category đặt là "vocabulary".`,
+      vocab_m2_orthography: `
+DẠNG BÀI BẮT BUỘC: Từ vựng · Mondai 2 — Nhận diện chữ Hán (表記).
+- Tạo câu văn tiếng Nhật hoàn chỉnh có từ mục tiêu viết bằng Hiragana trong ngoặc 【từ_hiragana】.
+- 4 phương án (options) là 4 cách viết chữ Hán (Kanji) gần giống nhau. TUYỆT ĐỐI KHÔNG kèm nghĩa tiếng Việt trong options.
+- category đặt là "vocabulary".`,
+      vocab_m3_context: `
+DẠNG BÀI BẮT BUỘC: Từ vựng · Mondai 3 — Điền từ vào chỗ trống theo ngữ cảnh câu (文脈規定).
+- Tạo câu văn tiếng Nhật hoàn chỉnh có chỗ trống （　　　） phù hợp với từ mục tiêu.
+- 4 phương án (options) là 4 từ vựng tiếng Nhật (không kèm nghĩa tiếng Việt trong options).
+- category đặt là "vocabulary".`,
+      vocab_m4_synonyms: `
+DẠNG BÀI BẮT BUỘC: Từ vựng · Mondai 4 — Tìm từ / cụm từ gần nghĩa nhất (言い換え類義).
+- Tạo câu văn tiếng Nhật có từ mục tiêu trong ngoặc 【　】.
+- 4 phương án (options) là 4 từ hoặc cách diễn đạt bằng tiếng Nhật (1 phương án đồng nghĩa/gần nghĩa nhất, 3 phương án nhiễu).
+- category đặt là "vocabulary".`,
+      vocab_m5_usage: `
+DẠNG BÀI BẮT BUỘC: Từ vựng · Mondai 5 — Cách dùng từ đúng trong câu (用法).
+- questionText chỉ nêu từ mục tiêu: "次のことばの使い方として最もよいものを、1・2・3・4から一つ選びなさい。\\n\\n【 Từ_vựng（Cách_đọc）】"
+- 4 phương án (options) BẮT BUỘC là 4 câu tiếng Nhật hoàn chỉnh đều có chứa từ đó (1 câu dùng đúng ngữ cảnh tự nhiên, 3 câu dùng sai kết hợp từ).
+- category đặt là "vocabulary".`,
+      grammar_m1_sentence: `
+DẠNG BÀI BẮT BUỘC: Ngữ pháp · Mondai 1 — Chọn cấu trúc ngữ pháp trong câu đơn (文の文法 1).
+- Tạo câu văn tiếng Nhật hoàn chỉnh có chỗ trống （　　　） kiểm tra cấu trúc ngữ pháp mục tiêu.
+- 4 phương án (options) là 4 mẫu ngữ pháp bằng tiếng Nhật (TUYỆT ĐỐI KHÔNG chép nghĩa tiếng Việt vào options).
+- category đặt là "grammar".`,
+      grammar_m2_star: `
+DẠNG BÀI BẮT BUỘC: Ngữ pháp · Mondai 2 (Dấu sao ★) — Sắp xếp câu (文の組み立て).
+- BẮT BUỘC tạo câu tiếng Nhật có đúng 4 chỗ trống: "＿＿＿　＿＿＿　★　＿＿＿" (trong đó vị trí thứ 3 là ngôi sao ★).
+- 4 phương án (options) BẮT BUỘC là 4 mảnh ghép câu bằng tiếng Nhật để lắp vào 4 chỗ trống đó (TUYỆT ĐỐI KHÔNG đưa tên ngữ pháp kèm giải thích tiếng Việt vào options!).
+- correctAnswerIndex là vị trí của mảnh ghép nằm ở dấu ★ sau khi sắp xếp đúng.
+- Trong phần explanation, ghi rõ thứ tự ghép đúng [Mảnh A] → [Mảnh B] → 【Mảnh C (★)】 → [Mảnh D] và câu hoàn chỉnh.
+- category đặt là "grammar".`,
+      grammar_m3_cloze: `
+DẠNG BÀI BẮT BUỘC: Ngữ pháp · Mondai 3 — Ngữ pháp đục lỗ trong đoạn văn (文章の文法).
+- Trường "passage" là một đoạn văn tiếng Nhật hoàn chỉnh (3–5 câu) có vị trí đục lỗ 【 1 】.
+- 4 phương án (options) là 4 cấu trúc ngữ pháp / liên từ bằng tiếng Nhật.
+- category đặt là "grammar".`,
+      reading_m4_short: `
+DẠNG BÀI BẮT BUỘC: Đọc hiểu · Mondai 4 — Đoản văn ngắn (~160–200 chữ: Email, Thông báo nội bộ).
+- Trường "passage" là một email hoặc thông báo tiếng Nhật tự nhiên có lồng ghép từ vựng/ngữ pháp mục tiêu.
+- questionText và 4 options viết bằng tiếng Nhật chuẩn đề thi JLPT N3.
+- category đặt là "reading".`,
+      reading_m5_medium: `
+DẠNG BÀI BẮT BUỘC: Đọc hiểu · Mondai 5 — Trung văn (~320–350 chữ: Phân tích lý do & Ý tác giả).
+- Trường "passage" là bài viết 2–3 đoạn bằng tiếng Nhật lồng ghép từ/ngữ pháp mục tiêu.
+- questionText và 4 options viết bằng tiếng Nhật hỏi lý do hoặc ý chính của tác giả.
+- category đặt là "reading".`,
+      reading_m6_long: `
+DẠNG BÀI BẮT BUỘC: Đọc hiểu · Mondai 6 — Trường văn (~450–550 chữ: Bài luận sâu).
+- Trường "passage" là bài luận 3 đoạn bằng tiếng Nhật lồng ghép từ/ngữ pháp mục tiêu.
+- questionText và 4 options viết bằng tiếng Nhật hỏi thông điệp trọng tâm toàn bài.
+- category đặt là "reading".`,
+      reading_m7_info_search: `
+DẠNG BÀI BẮT BUỘC: Đọc hiểu · Mondai 7 — Tìm kiếm thông tin (情報検索).
+- Trường "passage" là tờ rơi thông báo sự kiện / bảng giá / điều kiện đăng ký bằng tiếng Nhật có chứa từ/ngữ pháp mục tiêu.
+- questionText đưa ra tình huống 1 nhân vật cụ thể và hỏi phương án phù hợp nhất trong 4 options bằng tiếng Nhật.
+- category đặt là "reading".`,
+      listening_m1_task: `
+DẠNG BÀI BẮT BUỘC: Nghe hiểu · Mondai 1 — Nghe hiểu nhiệm vụ (課題理解).
+- Trường "listeningScript" là hội thoại 4 lượt lời giữa 男： và 女： có sử dụng từ/ngữ pháp mục tiêu.
+- questionText hỏi nhân vật sẽ làm gì đầu tiên tiếp theo (このあとまず何をしますか) với 4 options bằng tiếng Nhật.
+- category đặt là "listening".`,
+      listening_m2_point: `
+DẠNG BÀI BẮT BUỘC: Nghe hiểu · Mondai 2 — Nghe hiểu điểm chính (ポイント理解).
+- Trường "listeningScript" là hội thoại giữa 男： và 女： có sử dụng từ/ngữ pháp mục tiêu.
+- questionText hỏi lý do / chi tiết chính với 4 options bằng tiếng Nhật.
+- category đặt là "listening".`,
+      listening_m3_summary: `
+DẠNG BÀI BẮT BUỘC: Nghe hiểu · Mondai 3 — Nghe hiểu khái quát (概要理解).
+- Trường "listeningScript" là đoạn nói chuyện có sử dụng từ/ngữ pháp mục tiêu.
+- questionText hỏi chủ đề chính hoặc thông điệp người nói muốn truyền đạt với 4 options bằng tiếng Nhật.
+- category đặt là "listening".`,
+      listening_m4_expression: `
+DẠNG BÀI BẮT BUỘC: Nghe hiểu · Mondai 4 — Biểu hiện giao tiếp tình huống (発話表現).
+- Trường "listeningScript" nêu tình huống giao tiếp chứa từ/ngữ pháp mục tiêu.
+- 4 options là 4 câu thoại tiếng Nhật tự nhiên để chọn câu nói phù hợp nhất.
+- category đặt là "listening".`,
+      listening_m5_quick_response: `
+DẠNG BÀI BẮT BUỘC: Nghe hiểu · Mondai 5 — Phản xạ nhanh tức thì (即時応答).
+- Trường "listeningScript" là 1 câu phát ngôn ngắn của 男： hoặc 女： có chứa từ/ngữ pháp mục tiêu.
+- 4 options là 4 câu đáp trả ngắn bằng tiếng Nhật (1 câu đáp tự nhiên, 3 câu lệch ngữ cảnh).
+- category đặt là "listening".`,
+    };
+
+    const formatInstruction =
+      mondaiInstructionsMap[resolvedMondai] ||
+      mondaiInstructionsMap.grammar_m2_star;
 
     const systemPrompt = `
 Bạn là chuyên gia ra đề thi JLPT N3. Học viên đang ôn tập từ vựng (từ web OnTapTuVung) và ngữ pháp (từ web OnTapNguPhap).
-Hãy tạo ${count} câu hỏi trắc nghiệm mới hoàn toàn, chất lượng cao, lồng ghép trực tiếp các mục kiến thức dưới đây:
+Hãy tạo ${count} câu hỏi trắc nghiệm mới hoàn toàn, ĐÚNG CHUẨN ĐỊNH DẠNG ĐỀ THI THẬT JLPT N3 (tuyệt đối không tạo câu hỏi kiểu flashcard hỏi nghĩa tiếng Việt trực tiếp, mà phải đặt từ/ngữ pháp vào câu văn tiếng Nhật đúng chuẩn Mondai yêu cầu):
 
 DANH SÁCH TỪ VỰNG CỦA HỌC VIÊN:
 ${vocabDetails || 'Không có'}
@@ -631,14 +619,14 @@ ${grammarDetails || 'Không có'}
 ${formatInstruction}
 
 YÊU CẦU KỸ THUẬT:
-- Mỗi câu có đúng 4 phương án (options), correctAnswerIndex từ 0 đến 3.
+- Mỗi câu có đúng 4 phương án (options) bằng tiếng Nhật chuẩn đề thi JLPT N3, correctAnswerIndex phân bổ ngẫu nhiên từ 0 đến 3.
 - Trường "usedTargets" liệt kê lại những từ vựng/ngữ pháp trong danh sách trên đã được đưa vào câu hỏi đó.
 - Giải thích (explanation) chi tiết bằng tiếng Việt: dịch câu/đoạn văn, giải thích đáp án đúng và các từ mục tiêu đã dùng.
 `.trim();
 
     const response = await ai.models.generateContent({
       model: 'gemini-3.8-flash',
-      contents: `Hãy sinh ${count} câu hỏi dạng ${quizFormat} lồng ghép từ vựng và ngữ pháp đã cho.`,
+      contents: `Hãy sinh ${count} câu hỏi chuẩn đề thi JLPT N3 cho dạng ${resolvedMondai} (${customTitle}) lồng ghép từ vựng và ngữ pháp đã cho.`,
       config: {
         systemInstruction: systemPrompt,
         responseMimeType: 'application/json',
@@ -696,10 +684,12 @@ YÊU CẦU KỸ THUẬT:
     res.json({ success: true, questions });
   } catch (error: any) {
     console.error('Error generating targeted quiz:', error);
-    const fallbackQs = buildDynamicFallbackQuestions(
+    const fallbackQs = generateClientTargetedQuestions(
       req.body?.quizFormat || 'vocab_synonyms_usage',
       req.body?.targetVocab || [],
-      req.body?.targetGrammar || []
+      req.body?.targetGrammar || [],
+      req.body?.customTitle || '',
+      req.body?.mondaiId
     );
     res.json({ success: true, fallback: true, questions: fallbackQs });
   }

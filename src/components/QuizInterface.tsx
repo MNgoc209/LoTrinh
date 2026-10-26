@@ -337,7 +337,7 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({
         particleCount: 45,
         spread: 60,
         origin: { y: 0.7 },
-        colors: ['#B998A0', '#87606A', '#D1BBC0', '#9E7882'],
+        colors: ['#6CA8E1', '#3978BA', '#9AC6EE', '#E4A5BF'],
       });
       if (currentQ.sourceBugId && onUpdateBugReview) {
         onUpdateBugReview(currentQ.sourceBugId, true);
@@ -458,7 +458,7 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({
 
         {/* Reading Passage (if present) */}
         {currentQ.passage && (
-          <div className="bg-[#FAF7F7] p-5 rounded-2xl border border-pink-200/70 space-y-2">
+          <div className="bg-pink-50/60 p-5 rounded-2xl border border-pink-200/70 space-y-2">
             <div className="flex items-center gap-2 text-xs font-bold text-pink-800">
               <BookOpen className="w-4 h-4 text-pink-600" />
               <span>Đoạn văn Đọc hiểu JLPT N3 (Lồng ghép từ & ngữ pháp đang ôn):</span>
@@ -471,7 +471,7 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({
 
         {/* UPGRADED Choukai Listening Studio (Multi-Speaker, Speed Controls, Turn-by-Turn Replay) */}
         {currentQ.listeningScript && (
-          <div className="bg-[#FAF7F7] p-5 rounded-2xl border border-pink-200/80 space-y-4">
+          <div className="bg-pink-50/60 p-5 rounded-2xl border border-pink-200/80 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-pink-200/60">
               <div className="space-y-0.5">
                 <div className="flex items-center gap-2 text-xs font-bold text-pink-800">
@@ -609,7 +609,7 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({
                       <button
                         type="button"
                         onClick={() => speakSingleTurn(turn, idx)}
-                        className="px-2.5 py-1.5 bg-[#FAF7F7] hover:bg-pink-100 text-pink-700 border border-pink-200 rounded-lg text-xs font-semibold flex items-center gap-1 shrink-0 cursor-pointer"
+                        className="px-2.5 py-1.5 bg-pink-50/60 hover:bg-pink-100 text-pink-700 border border-pink-200 rounded-lg text-xs font-semibold flex items-center gap-1 shrink-0 cursor-pointer"
                       >
                         <Play className="w-3 h-3 fill-current" />
                         <span>Nghe câu {idx + 1}</span>
@@ -719,7 +719,7 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({
             )}
 
             {/* Explanation */}
-            <div className="bg-[#FAF7F7] p-4 rounded-2xl border border-pink-200/70 space-y-2">
+            <div className="bg-pink-50/60 p-4 rounded-2xl border border-pink-200/70 space-y-2">
               <div className="text-xs font-bold text-pink-800 flex items-center gap-1.5">
                 <HelpCircle className="w-3.5 h-3.5" />
                 <span>Giải thích chi tiết:</span>

@@ -9,6 +9,8 @@ interface NavbarProps {
   onOpenSyncModal: () => void;
   pendingBugsCount: number;
   weakItemsCount: number;
+  themeColor?: 'sky' | 'sakura';
+  onToggleThemeColor?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -18,28 +20,33 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenSyncModal,
   pendingBugsCount,
   weakItemsCount,
+  themeColor = 'sky',
+  onToggleThemeColor,
 }) => {
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-pink-200/70 px-6 py-4">
-      <div className="max-w-6xl mx-auto flex items-center justify-between gap-8">
-        {/* Zone 1: Brand Title (single text element, one line) */}
+      <div className="max-w-6xl mx-auto flex items-center justify-between gap-6">
+        {/* Zone 1: Brand Title */}
         <button
           type="button"
           onClick={() => onSelectTab('dashboard')}
-          className="text-lg font-bold tracking-tight text-stone-900 hover:text-pink-600 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+          className="text-lg font-bold tracking-tight text-slate-900 hover:text-pink-600 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
         >
           JLPT N3 AI Tracker
         </button>
 
-        {/* Zone 2: 4 concise single-line navigation links */}
-        <nav aria-label="Điều hướng chính" className="flex items-center gap-6 text-sm font-medium overflow-x-auto">
+        {/* Zone 2: Concise navigation links + Theme switcher */}
+        <nav
+          aria-label="Điều hướng chính"
+          className="flex items-center gap-6 text-sm font-medium overflow-x-auto"
+        >
           <button
             type="button"
             onClick={() => onSelectTab('dashboard')}
             className={`py-1 border-b-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
               currentTab === 'dashboard'
                 ? 'border-pink-600 text-pink-700 font-semibold'
-                : 'border-transparent text-stone-600 hover:text-stone-900'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
             }`}
           >
             Lịch hôm nay
@@ -51,7 +58,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             className={`py-1 border-b-2 transition-colors whitespace-nowrap shrink-0 tabular-nums cursor-pointer ${
               currentTab === 'knowledge'
                 ? 'border-pink-600 text-pink-700 font-semibold'
-                : 'border-transparent text-stone-600 hover:text-stone-900'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
             }`}
           >
             Kho Từ & Ngữ pháp ({weakItemsCount})
@@ -63,7 +70,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             className={`py-1 border-b-2 transition-colors whitespace-nowrap shrink-0 tabular-nums cursor-pointer ${
               currentTab === 'bugs'
                 ? 'border-pink-600 text-pink-700 font-semibold'
-                : 'border-transparent text-stone-600 hover:text-stone-900'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
             }`}
           >
             Bug Tracker ({pendingBugsCount})
@@ -72,10 +79,21 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button
             type="button"
             onClick={onOpenConfig}
-            className="py-1 border-b-2 border-transparent text-stone-600 hover:text-stone-900 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            className="py-1 border-b-2 border-transparent text-slate-600 hover:text-slate-900 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             Cấu hình lộ trình
           </button>
+
+          {onToggleThemeColor && (
+            <button
+              type="button"
+              onClick={onToggleThemeColor}
+              title="Đổi tông màu dịu mắt: Xanh biển nhạt ↔ Hồng phấn nhạt"
+              className="py-1 border-b-2 border-transparent text-pink-700 hover:text-pink-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer text-xs font-semibold"
+            >
+              {themeColor === 'sky' ? 'Tông màu: Xanh dịu' : 'Tông màu: Hồng nhạt'}
+            </button>
+          )}
         </nav>
 
         {/* Zone 3: 1 primary action button */}

@@ -82,7 +82,7 @@ export const EveningReportModal: React.FC<EveningReportModalProps> = ({
         </div>
 
         {/* Top KPI Summary Strip */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-[#FAF7F7] p-4 rounded-2xl border border-pink-200/70 tabular-nums">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-pink-50/60 p-4 rounded-2xl border border-pink-200/70 tabular-nums">
           <div className="space-y-1">
             <div className="text-xs text-stone-500">Độ chính xác hôm nay</div>
             <div className="text-2xl font-extrabold text-pink-600">
@@ -194,7 +194,7 @@ export const EveningReportModal: React.FC<EveningReportModalProps> = ({
         </div>
 
         {/* Next-Day Adaptive Strategy */}
-        <div className="p-5 rounded-2xl border border-pink-200 bg-[#FAF7F7] space-y-3">
+        <div className="p-5 rounded-2xl border border-pink-200 bg-pink-50/60 space-y-3">
           <div className="flex items-center gap-2 text-xs font-bold text-pink-800">
             <Sparkles className="w-4 h-4 text-pink-600" />
             <span>Đề xuất điều chỉnh cho Lộ trình Ngày kế tiếp (Dựa trên lộ trình hôm nay & báo cáo 19:00):</span>

@@ -317,3 +317,106 @@ test('parseGrammarBackupJson maps OnTapNguPhap sourceIds array and filters by se
   assert.equal(selected.priorityGrammar.length, 1);
   assert.equal(selected.priorityGrammar[0].name, '〜にもかかわらず');
 });
+
+import {
+  generateClientTargetedQuestions,
+  resolveMondaiId,
+} from './jlptMondaiTaxonomy';
+
+test('generateClientTargetedQuestions generates authentic JLPT N3 Mondai 2 Star (★) and Vocabulary Mondai 1-5 formats', () => {
+  const sampleVocab = [
+    { id: 'v1', word: '確認', reading: 'かくにん', meaning: 'Xác nhận', level: 1, learned: true, nextReview: 100 },
+    { id: 'v2', word: '変更', reading: 'へんこう', meaning: 'Thay đổi', level: 2, learned: true, nextReview: 100 },
+    { id: 'v3', word: '準備', reading: 'じゅんび', meaning: 'Chuẩn bị', level: 1, learned: true, nextReview: 100 },
+    { id: 'v4', word: '連絡', reading: 'れんらく', meaning: 'Liên lạc', level: 2, learned: true, nextReview: 100 },
+  ];
+  const sampleGrammar = [
+    {
+      id: 'g1',
+      name: '〜にもかかわらず',
+      structure: 'V/N + にもかかわらず',
+      meaning: 'Mặc dù / Bất chấp',
+      example: '大雨が降っているにもかかわらず、多くの人が集まった。',
+      level: 1,
+      nextReviewDate: 100,
+    },
+    {
+      id: 'g2',
+      name: '〜おかげで',
+      structure: 'V/Nの + おかげで',
+      meaning: 'Nhờ có...',
+      example: '先生が丁寧に教えてくれたおかげで、試験に合格できた。',
+      level: 2,
+      nextReviewDate: 100,
+    },
+    {
+      id: 'g3',
+      name: '〜うちに',
+      structure: 'Vる/Vない + うちに',
+      meaning: 'Nhân lúc...',
+      example: '雨が降らないうちに、早く帰りましょう。',
+      level: 1,
+      nextReviewDate: 100,
+    },
+    {
+      id: 'g4',
+      name: '〜ようにする',
+      structure: 'Vる/Vない + ようにする',
+      meaning: 'Cố gắng làm...',
+      example: '健康のために、毎日野菜を食べるようにしている。',
+      level: 2,
+      nextReviewDate: 100,
+    },
+  ];
+
+  // 1. Grammar Mondai 2 (Dấu sao ★)
+  const starQuestions = generateClientTargetedQuestions(
+    'grammar_mondai_3_4',
+    sampleVocab,
+    sampleGrammar,
+    'Ngữ pháp · Mondai 2 (Dấu sao ★)',
+    'grammar_m2_star'
+  );
+
+  assert.ok(starQuestions.length >= 3);
+  for (const q of starQuestions) {
+    assert.match(q.questionText, /＿＿＿　＿＿＿　★　＿＿＿/);
+    assert.equal(q.options.length, 4);
+    assert.ok(q.correctAnswerIndex >= 0 && q.correctAnswerIndex < 4);
+    // Options in Mondai 2 Star must be Japanese sentence fragments, never raw Vietnamese definitions
+    for (const opt of q.options) {
+      assert.doesNotMatch(opt, /Mặc dù|Nhờ có|Nhân lúc|Cố gắng/);
+    }
+    assert.match(q.explanation, /Thứ tự ghép 4 mảnh đúng/);
+  }
+
+  // 2. Vocab Mondai 1 (Cách đọc Kanji) -> options must be Hiragana readings
+  const m1Questions = generateClientTargetedQuestions(
+    'vocab_synonyms_usage',
+    sampleVocab,
+    sampleGrammar,
+    'Từ vựng · Mondai 1 (Cách đọc Kanji)',
+    'vocab_m1_kanji_reading'
+  );
+  assert.ok(m1Questions.length >= 3);
+  assert.equal(m1Questions[0].options[m1Questions[0].correctAnswerIndex], 'かくにん');
+
+  // 3. Vocab Mondai 5 (Cách dùng từ / 用法) -> options must be 4 full Japanese sentences containing the target word
+  const m5Questions = generateClientTargetedQuestions(
+    'vocab_synonyms_usage',
+    sampleVocab,
+    sampleGrammar,
+    'Từ vựng · Mondai 5 (Cách dùng từ đúng)',
+    'vocab_m5_usage'
+  );
+  assert.ok(m5Questions.length >= 3);
+  for (const opt of m5Questions[0].options) {
+    assert.ok(opt.includes('確認'));
+  }
+
+  // 4. resolveMondaiId accurately maps subCategory / mondaiId strings
+  assert.equal(resolveMondaiId('grammar_mondai_3_4', 'grammar_m2_star', ''), 'grammar_m2_star');
+  assert.equal(resolveMondaiId('grammar_mondai_3_4', undefined, 'Ngữ pháp · Mondai 2 (Dấu sao ★)'), 'grammar_m2_star');
+  assert.equal(resolveMondaiId('vocab_synonyms_usage', undefined, 'Từ vựng · Mondai 5 (Cách dùng từ đúng)'), 'vocab_m5_usage');
+});
+

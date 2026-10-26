@@ -47,6 +47,7 @@ import {
   generateClientTargetedQuestions,
   buildStructuredDailyTasks,
 } from './utils/jlptMondaiTaxonomy';
+import { pullFromSharedBrowserStorage } from './utils/firebaseExternalSync';
 import {
   DailyRoadmap,
   UserProfile,
@@ -96,7 +97,63 @@ export default function App() {
 
   useEffect(() => {
     saveUserProfile(profile);
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('data-theme', profile.themeColor || 'sky');
+    }
   }, [profile]);
+
+  // Automatically sync from shared browser origin (mngoc209.github.io) if KB is currently empty
+  useEffect(() => {
+    if (knowledgeBase.vocabulary.length === 0 && knowledgeBase.grammars.length === 0) {
+      const { vocabResult, grammarResult } = pullFromSharedBrowserStorage();
+      if (vocabResult || grammarResult) {
+        const nextKB: KnowledgeBaseData = {
+          ...knowledgeBase,
+          ...(vocabResult
+            ? {
+                vocabulary: vocabResult.vocabulary,
+                vocabReviewHistory: vocabResult.reviewHistory,
+                lastSyncedVocabAt: Date.now(),
+                syncSourceVocab: `Tự động đồng bộ từ trình duyệt (${vocabResult.vocabulary.length} từ)`,
+              }
+            : {}),
+          ...(grammarResult
+            ? {
+                grammars: grammarResult.grammars,
+                grammarReviewHistory: grammarResult.reviewHistory,
+                grammarSources: grammarResult.grammarSources,
+                selectedGrammarSources: grammarResult.grammarSources,
+                lastSyncedGrammarAt: Date.now(),
+                syncSourceGrammar: `Tự động đồng bộ từ trình duyệt (${grammarResult.grammars.length} mẫu · ${grammarResult.grammarSources.length} nguồn)`,
+              }
+            : {}),
+        };
+        setKnowledgeBase(nextKB);
+        const { priorityVocab, priorityGrammar } = selectPriorityTargets(
+          nextKB.vocabulary,
+          nextKB.grammars,
+          Date.now(),
+          12,
+          6,
+          nextKB.selectedGrammarSources
+        );
+        const structuredTasks = buildStructuredDailyTasks({
+          pendingBugsCount: 0,
+          priorityVocab,
+          priorityGrammar,
+        });
+        if (structuredTasks.length > 0) {
+          setRoadmap((prev) => ({
+            ...prev,
+            focusMessage: `Đã tự động đồng bộ ${nextKB.vocabulary.length} từ vựng & ${nextKB.grammars.length} mẫu ngữ pháp từ trình duyệt của bạn!`,
+            tasks: structuredTasks,
+            totalEstimatedMinutes: structuredTasks.reduce((s, t) => s + t.estimatedMinutes, 0),
+          }));
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     saveRoadmap(roadmap);
@@ -159,10 +216,14 @@ export default function App() {
           compiled,
           ...prev.filter((r) => r.date !== compiled.date),
         ]);
-        setIsEveningReportOpen(true);
-        showToast(
-          'Đã đến 19:00! Hệ thống tự động tổng hợp Báo cáo tiến độ hôm nay & gợi ý lộ trình ngày mai.'
-        );
+        const hasStudiedToday =
+          studyLog.completedTaskCount > 0 || studyLog.bonusSessions.length > 0;
+        if (hasStudiedToday) {
+          setIsEveningReportOpen(true);
+          showToast(
+            'Đã đến 19:00! Hệ thống tự động tổng hợp Báo cáo tiến độ hôm nay & gợi ý lộ trình ngày mai.'
+          );
+        }
       }
     };
 
@@ -219,7 +280,8 @@ export default function App() {
     title: string,
     categoryLabel: string,
     targetMondai?: string,
-    category?: JLPTCategory
+    category?: JLPTCategory,
+    mondaiId?: string
   ) => {
     const { priorityVocab, priorityGrammar } = selectPriorityTargets(
       knowledgeBase.vocabulary,
@@ -239,6 +301,7 @@ export default function App() {
 
     const newTask: TaskItem = {
       id: `task_bonus_${Date.now()}`,
+      mondaiId,
       title,
       category: category || categoryMap[format] || 'grammar',
       categoryLabel,
@@ -269,7 +332,8 @@ export default function App() {
     grammarItems: ImportedGrammarItem[],
     customTitle: string,
     taskId?: string,
-    isBonus = false
+    isBonus = false,
+    mondaiId?: string
   ) => {
     if (quizFormat === 'bug_review') {
       handleStartAllDueBugs();
@@ -291,6 +355,8 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           quizFormat,
+          mondaiId,
+          customTitle,
           targetVocab: vocabItems.slice(0, 8),
           targetGrammar: grammarItems.slice(0, 5),
           count: 4,
@@ -311,7 +377,8 @@ export default function App() {
         quizFormat,
         vocabItems,
         grammarItems,
-        customTitle
+        customTitle,
+        mondaiId
       );
     }
 
@@ -388,14 +455,16 @@ export default function App() {
       priorityGrammar,
       task.title,
       task.id,
-      Boolean(task.isBonusTask)
+      Boolean(task.isBonusTask),
+      task.mondaiId
     );
   };
 
   const handleQuickStartFormat = async (
     format: QuizFormatType,
     title: string,
-    isBonus = false
+    isBonus = false,
+    mondaiId?: string
   ) => {
     const { priorityVocab, priorityGrammar } = selectPriorityTargets(
       knowledgeBase.vocabulary,
@@ -405,7 +474,15 @@ export default function App() {
       6,
       activeGrammarSources
     );
-    await handleStartTargetedQuiz(format, priorityVocab, priorityGrammar, title, undefined, isBonus);
+    await handleStartTargetedQuiz(
+      format,
+      priorityVocab,
+      priorityGrammar,
+      title,
+      undefined,
+      isBonus,
+      mondaiId
+    );
   };
 
   const handleStartAllDueBugs = () => {
@@ -789,19 +866,32 @@ export default function App() {
     showToast(`Đã cập nhật Level ngữ pháp sang Lv${newLevel}.`);
   };
 
+  const handleToggleThemeColor = () => {
+    const nextTheme = (profile.themeColor || 'sky') === 'sky' ? 'sakura' : 'sky';
+    setProfile((prev) => ({
+      ...prev,
+      themeColor: nextTheme,
+    }));
+    showToast(
+      nextTheme === 'sky'
+        ? 'Đã chuyển sang tông màu Xanh biển nhạt dịu mắt.'
+        : 'Đã chuyển sang tông màu Hồng phấn nhạt dịu mắt.'
+    );
+  };
+
   return (
-    <div className="min-h-screen bg-[#FAF7F7] text-stone-800 flex flex-col selection:bg-pink-200">
+    <div className="min-h-screen bg-[var(--bg-canvas)] text-slate-800 flex flex-col selection:bg-pink-200">
       {/* Toast Notification */}
       {toastMessage && (
         <div
           role="status"
-          className="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl bg-stone-900 text-white text-xs md:text-sm font-semibold shadow-lg flex items-center gap-2"
+          className="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl bg-slate-900 text-white text-xs md:text-sm font-semibold shadow-lg flex items-center gap-2"
         >
           <span>{toastMessage}</span>
         </div>
       )}
 
-      {/* Top Navigation Bar (Strict 3-Zone Contract) */}
+      {/* Top Navigation Bar */}
       <Navbar
         currentTab={currentTab}
         onSelectTab={(tab) => {
@@ -812,6 +902,8 @@ export default function App() {
         onOpenSyncModal={() => setIsSyncModalOpen(true)}
         pendingBugsCount={dueBugs.length}
         weakItemsCount={weakItemsCount}
+        themeColor={profile.themeColor || 'sky'}
+        onToggleThemeColor={handleToggleThemeColor}
       />
 
       {/* Main Content */}
