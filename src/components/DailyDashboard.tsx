@@ -220,7 +220,7 @@ export const DailyDashboard: React.FC<DailyDashboardProps> = ({
             <button
               type="button"
               onClick={onOpenEveningReport}
-              className="px-4 py-2.5 bg-[#FFF7F8] hover:bg-pink-100/70 text-pink-700 border border-pink-200 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer"
+              className="px-4 py-2.5 bg-[#FAF7F7] hover:bg-pink-100/70 text-pink-700 border border-pink-200 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer"
             >
               <TrendingUp className="w-4 h-4 text-pink-600" />
               <span>Báo cáo 19:00 & Lộ trình mai</span>
@@ -327,7 +327,7 @@ export const DailyDashboard: React.FC<DailyDashboardProps> = ({
 
             {/* Grammar Source Selector ("Có nguồn học · Có nguồn bỏ") */}
             {grammarSourcesSummary.length > 0 && (
-              <div className="p-3.5 rounded-2xl bg-[#FFF7F8] border border-pink-200/80 space-y-2.5">
+              <div className="p-3.5 rounded-2xl bg-[#FAF7F7] border border-pink-200/80 space-y-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="text-xs font-bold text-pink-800">
@@ -384,24 +384,30 @@ export const DailyDashboard: React.FC<DailyDashboardProps> = ({
                 <div className="text-xs font-bold text-stone-700">
                   Từ vựng ưu tiên (Lv1–Lv3 & Đến hạn)
                 </div>
-                <div className="divide-y divide-pink-100 text-xs">
-                  {priorityVocab.slice(0, 5).map((v) => (
-                    <div key={v.id} className="py-2 flex items-baseline justify-between gap-2">
-                      <div>
-                        <span className="font-bold text-stone-900 font-['Noto_Sans_JP',sans-serif]">
-                          {v.word}
-                        </span>{' '}
-                        <span className="text-stone-500 font-['Noto_Sans_JP',sans-serif]">
-                          ({v.reading})
-                        </span>{' '}
-                        <span className="text-stone-600">— {v.meaning}</span>
+                {priorityVocab.length > 0 ? (
+                  <div className="divide-y divide-pink-100 text-xs">
+                    {priorityVocab.slice(0, 5).map((v) => (
+                      <div key={v.id} className="py-2 flex items-baseline justify-between gap-2">
+                        <div>
+                          <span className="font-bold text-stone-900 font-['Noto_Sans_JP',sans-serif]">
+                            {v.word}
+                          </span>{' '}
+                          <span className="text-stone-500 font-['Noto_Sans_JP',sans-serif]">
+                            ({v.reading})
+                          </span>{' '}
+                          <span className="text-stone-600">— {v.meaning}</span>
+                        </div>
+                        <span className="text-rose-600 font-semibold tabular-nums shrink-0">
+                          Lv{v.level}
+                        </span>
                       </div>
-                      <span className="text-rose-600 font-semibold tabular-nums shrink-0">
-                        Lv{v.level}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-4 text-xs text-stone-500">
+                    Chưa có dữ liệu từ vựng. Hãy bấm <strong>Nạp Backup / Cloud</strong> để đồng bộ từ OnTapTuVung.
+                  </div>
+                )}
               </div>
 
               {/* Priority Grammar List */}
@@ -429,6 +435,10 @@ export const DailyDashboard: React.FC<DailyDashboardProps> = ({
                         </span>
                       </div>
                     ))}
+                  </div>
+                ) : knowledgeBase.grammars.length === 0 ? (
+                  <div className="py-4 text-xs text-stone-500">
+                    Chưa có dữ liệu ngữ pháp. Hãy bấm <strong>Nạp Backup / Cloud</strong> để đồng bộ từ OnTapNguPhap.
                   </div>
                 ) : (
                   <div className="py-4 text-xs text-stone-500">
@@ -474,7 +484,7 @@ export const DailyDashboard: React.FC<DailyDashboardProps> = ({
                   type="button"
                   disabled={loadingQuickFormat !== null}
                   onClick={() => handleQuickFormatStart(btn.key, btn.format, btn.label, false)}
-                  className="py-2 px-3 bg-[#FFF7F8] hover:bg-pink-100 text-pink-700 border border-pink-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
+                  className="py-2 px-3 bg-[#FAF7F7] hover:bg-pink-100 text-pink-700 border border-pink-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer"
                 >
                   {loadingQuickFormat === btn.key ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -532,7 +542,7 @@ export const DailyDashboard: React.FC<DailyDashboardProps> = ({
             <button
               type="button"
               onClick={onOpenEveningReport}
-              className="w-full py-2.5 px-3 bg-[#FFF7F8] hover:bg-pink-100 text-pink-700 border border-pink-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              className="w-full py-2.5 px-3 bg-[#FAF7F7] hover:bg-pink-100 text-pink-700 border border-pink-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
             >
               <Clock className="w-3.5 h-3.5" />
               <span>Xem Báo cáo 19:00 & Tạo lộ trình mai</span>
@@ -575,11 +585,31 @@ export const DailyDashboard: React.FC<DailyDashboardProps> = ({
         </div>
 
         {/* Grouped Task Sections */}
+        {taskGroups.length === 0 ? (
+          <div className="rounded-2xl border border-pink-200/70 bg-[#FAF7F7] p-8 text-center space-y-3">
+            <div className="text-base font-bold text-stone-800">
+              Chưa có nhiệm vụ nào (Đã xóa toàn bộ dữ liệu mẫu)
+            </div>
+            <p className="text-xs text-stone-600 max-w-lg mx-auto leading-relaxed">
+              Hãy nạp file Backup JSON hoặc kết nối Cloud Firebase từ <strong>OnTapTuVung</strong> và <strong>OnTapNguPhap</strong> để hệ thống tự động lên lộ trình luyện thi từ chính kho từ vựng & ngữ pháp thực tế của bạn.
+            </p>
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={onOpenSyncModal}
+                className="px-4 py-2.5 bg-pink-600 hover:bg-pink-700 text-white rounded-xl text-xs font-semibold inline-flex items-center gap-2 transition-colors cursor-pointer"
+              >
+                <Upload className="w-4 h-4" />
+                <span>Đồng bộ dữ liệu OnTapTuVung & OnTapNguPhap ngay</span>
+              </button>
+            </div>
+          </div>
+        ) : (
         <div className="space-y-6">
           {taskGroups.map((group) => (
             <div
               key={group.category}
-              className="rounded-2xl border border-pink-200/70 bg-[#FFF7F8]/40 p-4 md:p-5 space-y-4"
+              className="rounded-2xl border border-pink-200/70 bg-[#FAF7F7]/40 p-4 md:p-5 space-y-4"
             >
               {/* Section Header */}
               <div className="border-b border-pink-200/60 pb-3 space-y-1">
@@ -721,6 +751,7 @@ export const DailyDashboard: React.FC<DailyDashboardProps> = ({
             </div>
           ))}
         </div>
+        )}
       </section>
 
       {/* 4. FULL 18-MONDAI CATALOG BY SECTION ("Chia mục rõ ràng từng Mondai Từ vựng, Ngữ pháp, Đọc hiểu, Nghe hiểu & Ôn thêm") */}
@@ -741,7 +772,7 @@ export const DailyDashboard: React.FC<DailyDashboardProps> = ({
           <button
             type="button"
             onClick={onOpenEveningReport}
-            className="px-3.5 py-2 bg-[#FFF7F8] hover:bg-pink-100 text-pink-700 border border-pink-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 shrink-0 cursor-pointer"
+            className="px-3.5 py-2 bg-[#FAF7F7] hover:bg-pink-100 text-pink-700 border border-pink-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 shrink-0 cursor-pointer"
           >
             <TrendingUp className="w-3.5 h-3.5" />
             <span>Đã ôn thêm: {studyLog.bonusSessions.length} bài</span>
@@ -756,7 +787,7 @@ export const DailyDashboard: React.FC<DailyDashboardProps> = ({
             className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
               selectedMondaiSection === 'all'
                 ? 'bg-pink-600 text-white'
-                : 'bg-[#FFF7F8] text-stone-700 border border-pink-200 hover:bg-pink-50'
+                : 'bg-[#FAF7F7] text-stone-700 border border-pink-200 hover:bg-pink-50'
             }`}
           >
             Tất cả 4 Kỹ năng (17 Mondai)
@@ -769,7 +800,7 @@ export const DailyDashboard: React.FC<DailyDashboardProps> = ({
               className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
                 selectedMondaiSection === sec.category
                   ? 'bg-pink-600 text-white'
-                  : 'bg-[#FFF7F8] text-stone-700 border border-pink-200 hover:bg-pink-50'
+                  : 'bg-[#FAF7F7] text-stone-700 border border-pink-200 hover:bg-pink-50'
               }`}
             >
               {sec.title} ({sec.badgeText})
@@ -794,7 +825,7 @@ export const DailyDashboard: React.FC<DailyDashboardProps> = ({
                   {mondaisInSec.map((mondai) => (
                     <div
                       key={mondai.id}
-                      className="p-4 rounded-2xl border border-pink-200/80 bg-[#FFF7F8]/50 flex flex-col justify-between space-y-3"
+                      className="p-4 rounded-2xl border border-pink-200/80 bg-[#FAF7F7]/50 flex flex-col justify-between space-y-3"
                     >
                       <div className="space-y-1.5">
                         <div className="flex items-center justify-between gap-2 text-xs">

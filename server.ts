@@ -73,6 +73,17 @@ function buildFallbackRoadmap(params: {
   const vocabLabels = priorityVocab.slice(0, 8).map((v: any) => `${v.word} (Lv${v.level})`);
   const grammarLabels = priorityGrammar.slice(0, 5).map((g: any) => `${g.name} (Lv${g.level})`);
 
+  if (pendingBugsCount === 0 && vocabLabels.length === 0 && grammarLabels.length === 0) {
+    return {
+      focusMessage:
+        'Chưa có dữ liệu từ vựng hoặc ngữ pháp. Hãy bấm "Đồng bộ dữ liệu" để nạp file Backup JSON hoặc kết nối Cloud Firebase từ OnTapTuVung & OnTapNguPhap.',
+      targetScoreGoal: 'Nạp dữ liệu cá nhân để tạo lộ trình học',
+      totalEstimatedMinutes: 0,
+      tasks: [],
+      tipsForToday: [],
+    };
+  }
+
   const tasks: any[] = [];
   if (pendingBugsCount > 0) {
     tasks.push({

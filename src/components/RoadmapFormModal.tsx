@@ -181,7 +181,7 @@ export const RoadmapFormModal: React.FC<RoadmapFormModalProps> = ({
               {sectionGroups.map((group) => (
                 <div
                   key={group.groupTitle}
-                  className="bg-[#FFF7F8] p-4 rounded-2xl border border-pink-200/70 space-y-3"
+                  className="bg-[#FAF7F7] p-4 rounded-2xl border border-pink-200/70 space-y-3"
                 >
                   <div className="border-b border-pink-200/60 pb-2">
                     <div className="text-xs md:text-sm font-bold text-pink-800">

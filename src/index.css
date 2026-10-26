@@ -1,8 +1,37 @@
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap');
 @import "tailwindcss";
 
+@theme {
+  /* Muted Dusty Rose / Warm Blush-Taupe Palette (Soft, Low-Saturation, Non-Glaring) */
+  --color-pink-50: #F8F4F5;
+  --color-pink-100: #F1E9EB;
+  --color-pink-200: #E3D5D8;
+  --color-pink-300: #D1BBC0;
+  --color-pink-400: #B998A0;
+  --color-pink-500: #9E7882;
+  --color-pink-600: #87606A;
+  --color-pink-700: #6F4D56;
+  --color-pink-800: #593D45;
+  --color-pink-900: #473137;
+  --color-pink-950: #2C1D21;
+
+  --color-rose-50: #F9F4F4;
+  --color-rose-100: #F2E8E8;
+  --color-rose-200: #E4D3D3;
+  --color-rose-300: #D2B7B7;
+  --color-rose-400: #BA9393;
+  --color-rose-500: #A27575;
+  --color-rose-600: #8C5E5E;
+  --color-rose-700: #744C4C;
+  --color-rose-800: #5D3C3C;
+  --color-rose-900: #4A3030;
+  --color-rose-950: #2E1D1D;
+}
+
 body {
   font-family: 'Plus Jakarta Sans', 'Noto Sans JP', 'Hiragino Sans', 'Meiryo', sans-serif;
+  background-color: #FAF7F7;
+  color: #292524;
 }
 
 @layer utilities {

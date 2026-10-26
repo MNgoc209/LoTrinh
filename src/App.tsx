@@ -26,8 +26,12 @@ import {
   loadDailyReports,
   saveDailyReports,
   addBugRecord,
+  clearAllAppStorage,
+  DEFAULT_PROFILE,
+  INITIAL_KNOWLEDGE_BASE,
+  INITIAL_SEED_ROADMAP,
+  createEmptyStudyLog,
 } from './utils/storage';
-import { SAMPLE_JLPT_N3_QUESTIONS } from './data/sampleQuestions';
 import {
   calculateDaysRemaining,
   calculateNextReview,
@@ -125,9 +129,16 @@ export default function App() {
       (s) => s.name
     );
 
-  // Automatic 19:00 Daily Checkpoint Watcher
+  // Automatic 19:00 Daily Checkpoint Watcher (only triggers when user has synced data or completed tasks)
   useEffect(() => {
     const check19hSchedule = () => {
+      if (
+        knowledgeBase.vocabulary.length === 0 &&
+        knowledgeBase.grammars.length === 0 &&
+        roadmap.tasks.length === 0
+      ) {
+        return;
+      }
       const todayStr = new Date().toISOString().split('T')[0];
       const existingTodayReport =
         dailyReports.find((r) => r.date === todayStr) || null;
@@ -265,6 +276,14 @@ export default function App() {
       return;
     }
 
+    if (vocabItems.length === 0 && grammarItems.length === 0) {
+      showToast(
+        'Chưa có dữ liệu từ vựng hoặc ngữ pháp! Vui lòng nạp file Backup JSON hoặc kết nối Firebase trước khi làm bài.'
+      );
+      setIsSyncModalOpen(true);
+      return;
+    }
+
     let generatedQuestions: QuizQuestion[] = [];
     try {
       const response = await fetch('/api/quiz/generate-targeted', {
@@ -296,30 +315,17 @@ export default function App() {
       );
     }
 
-    const categoryMap: Record<QuizFormatType, string> = {
-      reading_integrated: 'reading',
-      grammar_mondai_3_4: 'grammar',
-      vocab_synonyms_usage: 'vocabulary',
-      listening_dialogue: 'listening',
-      bug_review: 'review',
-    };
-
-    const targetCategory = categoryMap[quizFormat] || 'grammar';
-    const curatedSampleMatches = SAMPLE_JLPT_N3_QUESTIONS.filter(
-      (q) => q.category === targetCategory
-    );
-
-    const combinedQuestions =
-      generatedQuestions.length >= 2
-        ? generatedQuestions
-        : [...curatedSampleMatches, ...generatedQuestions];
+    if (generatedQuestions.length === 0) {
+      showToast(
+        'Cần nạp dữ liệu tương ứng (Từ vựng hoặc Ngữ pháp) từ OnTapTuVung / OnTapNguPhap để tạo dạng đề này.'
+      );
+      setIsSyncModalOpen(true);
+      return;
+    }
 
     setActiveQuiz({
       title: customTitle,
-      questions:
-        combinedQuestions.length > 0
-          ? combinedQuestions
-          : SAMPLE_JLPT_N3_QUESTIONS.slice(0, 4),
+      questions: generatedQuestions,
       taskId,
       quizFormat,
       isBonus,
@@ -573,35 +579,37 @@ export default function App() {
     );
 
     let generatedRoadmap: DailyRoadmap | null = null;
-    try {
-      const response = await fetch('/api/roadmap/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          daysRemaining,
-          examDateStr: examDate,
-          confidence,
-          pendingBugsCount: dueBugs.length,
-          personalNotes: confidence.notes,
-          priorityVocab,
-          priorityGrammar,
-          studyIntensity: profile.studyIntensity || 'intensive',
-          previousReport: previousReport || dailyReports[0] || null,
-        }),
-      });
-
-      if (response.ok) {
-        const resData = await response.json();
-        if (resData.success && resData.roadmap) {
-          generatedRoadmap = {
-            ...resData.roadmap,
-            date: new Date().toISOString().split('T')[0],
+    if (priorityVocab.length > 0 || priorityGrammar.length > 0 || dueBugs.length > 0) {
+      try {
+        const response = await fetch('/api/roadmap/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             daysRemaining,
-          };
+            examDateStr: examDate,
+            confidence,
+            pendingBugsCount: dueBugs.length,
+            personalNotes: confidence.notes,
+            priorityVocab,
+            priorityGrammar,
+            studyIntensity: profile.studyIntensity || 'intensive',
+            previousReport: previousReport || dailyReports[0] || null,
+          }),
+        });
+
+        if (response.ok) {
+          const resData = await response.json();
+          if (resData.success && resData.roadmap) {
+            generatedRoadmap = {
+              ...resData.roadmap,
+              date: new Date().toISOString().split('T')[0],
+              daysRemaining,
+            };
+          }
         }
+      } catch {
+        // Static GitHub Pages fallback
       }
-    } catch {
-      // Static GitHub Pages fallback
     }
 
     if (!generatedRoadmap) {
@@ -613,17 +621,26 @@ export default function App() {
       generatedRoadmap = {
         date: new Date().toISOString().split('T')[0],
         daysRemaining,
-        focusMessage: previousReport
-          ? `Lộ trình thích ứng dựa trên Báo cáo 19:00 (${previousReport.date}): Chia rõ 4 Mục (Từ vựng, Ngữ pháp, Đọc hiểu, Nghe hiểu) với từng Mondai cụ thể.`
-          : `Chiến dịch ${daysRemaining} ngày trước kỳ thi: Phân bổ ${priorityVocab.length} từ vựng & ${priorityGrammar.length} ngữ pháp Lv1–Lv3 (${selectedSources.length} nguồn đang bật) vào 4 Mục với từng Mondai rõ ràng.`,
-        targetScoreGoal: 'Hoàn thành đầy đủ các Mondai trọng tâm của 4 kỹ năng & Tổng kết lúc 19:00',
+        focusMessage:
+          structuredTasks.length === 0
+            ? 'Chưa có dữ liệu từ vựng hoặc ngữ pháp. Hãy bấm "Đồng bộ dữ liệu" để nạp file Backup JSON hoặc kết nối Cloud Firebase từ OnTapTuVung & OnTapNguPhap.'
+            : previousReport
+            ? `Lộ trình thích ứng dựa trên Báo cáo 19:00 (${previousReport.date}): Chia rõ 4 Mục (Từ vựng, Ngữ pháp, Đọc hiểu, Nghe hiểu) với từng Mondai cụ thể.`
+            : `Chiến dịch ${daysRemaining} ngày trước kỳ thi: Phân bổ ${priorityVocab.length} từ vựng & ${priorityGrammar.length} ngữ pháp Lv1–Lv3 (${selectedSources.length} nguồn đang bật) vào 4 Mục với từng Mondai rõ ràng.`,
+        targetScoreGoal:
+          structuredTasks.length === 0
+            ? 'Nạp dữ liệu cá nhân để bắt đầu'
+            : 'Hoàn thành đầy đủ các Mondai trọng tâm của 4 kỹ năng & Tổng kết lúc 19:00',
         totalEstimatedMinutes: structuredTasks.reduce((s, t) => s + t.estimatedMinutes, 0),
         tasks: structuredTasks,
         basedOnReportDate: previousReport?.date,
-        tipsForToday: [
-          'Mỗi mục đã được tách rõ theo đúng cấu trúc Mondai của đề thi thật JLPT N3.',
-          'Vào lúc 19:00, hệ thống sẽ tổng hợp Báo cáo tiến độ để tạo lộ trình thích ứng cho ngày kế tiếp.',
-        ],
+        tipsForToday:
+          structuredTasks.length === 0
+            ? []
+            : [
+                'Mỗi mục đã được tách rõ theo đúng cấu trúc Mondai của đề thi thật JLPT N3.',
+                'Vào lúc 19:00, hệ thống sẽ tổng hợp Báo cáo tiến độ để tạo lộ trình thích ứng cho ngày kế tiếp.',
+              ],
       };
     }
 
@@ -640,7 +657,7 @@ export default function App() {
     confidence: ConfidenceAssessment;
   }) => {
     await handleGenerateRoadmapWithKB(data.examDate, data.confidence, knowledgeBase);
-    showToast('Đã cập nhật lộ trình chia rõ 4 Kỹ năng & từng Mondai cụ thể!');
+    showToast('Đã cập nhật lộ trình theo cấu hình mới!');
   };
 
   const handleGenerateNextDayFromReport = async (report: DailyProgressReport) => {
@@ -677,6 +694,20 @@ export default function App() {
     if (regenerateRoadmap) {
       await handleGenerateRoadmapWithKB(profile.examDate, profile.confidence, nextKB);
     }
+  };
+
+  const handleClearAllData = () => {
+    clearAllAppStorage();
+    setKnowledgeBase(INITIAL_KNOWLEDGE_BASE);
+    setRoadmap({
+      ...INITIAL_SEED_ROADMAP,
+      daysRemaining: calculateDaysRemaining(DEFAULT_PROFILE.examDate),
+    });
+    setBugs([]);
+    setStudyLog(createEmptyStudyLog());
+    setDailyReports([]);
+    setProfile(DEFAULT_PROFILE);
+    showToast('Đã xóa toàn bộ dữ liệu tạm và đưa ứng dụng về trạng thái trống.');
   };
 
   const applyGrammarSourcesUpdate = (nextSelectedSources: string[], msg: string) => {
@@ -759,7 +790,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FFF7F8] text-stone-800 flex flex-col selection:bg-pink-200">
+    <div className="min-h-screen bg-[#FAF7F7] text-stone-800 flex flex-col selection:bg-pink-200">
       {/* Toast Notification */}
       {toastMessage && (
         <div
@@ -864,6 +895,7 @@ export default function App() {
         grammarUid={profile.grammarFirebaseUid}
         onUpdateKnowledgeBase={handleUpdateKnowledgeBase}
         onToggleGrammarSource={handleToggleGrammarSource}
+        onClearAllData={handleClearAllData}
       />
 
       {activeReport && (

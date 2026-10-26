@@ -265,7 +265,7 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
                     onClick={() => onToggleGrammarSource(src.name)}
                     className={`p-3.5 rounded-2xl border text-left transition-colors cursor-pointer flex items-center justify-between gap-3 ${
                       isSelected
-                        ? 'bg-[#FFF7F8] border-pink-400 text-stone-900 shadow-xs'
+                        ? 'bg-[#FAF7F7] border-pink-400 text-stone-900 shadow-xs'
                         : 'bg-stone-50 border-stone-200 text-stone-400 opacity-75'
                     }`}
                   >
@@ -324,7 +324,7 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
                 '1. Từ vựng (Mondai 1–5): Đọc/Viết Hán tự, Điền từ, Đồng nghĩa & Cách dùng từ (用法)'
               )
             }
-            className="p-4 rounded-2xl border border-pink-200 bg-[#FFF7F8] hover:bg-pink-100/70 text-left space-y-2 transition-colors cursor-pointer"
+            className="p-4 rounded-2xl border border-pink-200 bg-[#FAF7F7] hover:bg-pink-100/70 text-left space-y-2 transition-colors cursor-pointer"
           >
             <div className="flex items-center justify-between text-pink-700">
               <Sparkles className="w-4 h-4" />
@@ -351,7 +351,7 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
                 '2. Ngữ pháp (Mondai 1–3): Câu đơn, Sắp xếp dấu sao ★ & Đục lỗ đoạn văn'
               )
             }
-            className="p-4 rounded-2xl border border-pink-200 bg-[#FFF7F8] hover:bg-pink-100/70 text-left space-y-2 transition-colors cursor-pointer"
+            className="p-4 rounded-2xl border border-pink-200 bg-[#FAF7F7] hover:bg-pink-100/70 text-left space-y-2 transition-colors cursor-pointer"
           >
             <div className="flex items-center justify-between text-pink-700">
               <FileText className="w-4 h-4" />
@@ -378,7 +378,7 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
                 '3. Đọc hiểu (Mondai 4–7): Đoản văn, Trung văn, Trường văn & Tìm kiếm thông tin'
               )
             }
-            className="p-4 rounded-2xl border border-pink-200 bg-[#FFF7F8] hover:bg-pink-100/70 text-left space-y-2 transition-colors cursor-pointer"
+            className="p-4 rounded-2xl border border-pink-200 bg-[#FAF7F7] hover:bg-pink-100/70 text-left space-y-2 transition-colors cursor-pointer"
           >
             <div className="flex items-center justify-between text-pink-700">
               <BookOpen className="w-4 h-4" />
@@ -405,7 +405,7 @@ export const KnowledgeBaseView: React.FC<KnowledgeBaseViewProps> = ({
                 '4. Nghe hiểu (Mondai 1–5): Nghe nhiệm vụ, Điểm chính, Khái quát, Giao tiếp & Phản xạ'
               )
             }
-            className="p-4 rounded-2xl border border-pink-200 bg-[#FFF7F8] hover:bg-pink-100/70 text-left space-y-2 transition-colors cursor-pointer"
+            className="p-4 rounded-2xl border border-pink-200 bg-[#FAF7F7] hover:bg-pink-100/70 text-left space-y-2 transition-colors cursor-pointer"
           >
             <div className="flex items-center justify-between text-pink-700">
               <Headphones className="w-4 h-4" />

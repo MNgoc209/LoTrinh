@@ -8,6 +8,8 @@ import {
   Loader2,
   ExternalLink,
   RefreshCw,
+  Trash2,
+  Copy,
 } from 'lucide-react';
 import { KnowledgeBaseData } from '../types';
 import {
@@ -34,6 +36,7 @@ interface DataSyncModalProps {
     regenerateRoadmap?: boolean
   ) => Promise<void>;
   onToggleGrammarSource?: (sourceName: string) => void;
+  onClearAllData?: () => void;
 }
 
 export const DataSyncModal: React.FC<DataSyncModalProps> = ({
@@ -44,6 +47,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   grammarUid: initialGrammarUid = '',
   onUpdateKnowledgeBase,
   onToggleGrammarSource,
+  onClearAllData,
 }) => {
   const [activeTab, setActiveTab] = useState<'backup' | 'firebase'>('backup');
   const [vocabUid, setVocabUid] = useState(initialVocabUid);
@@ -52,8 +56,12 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copiedHost, setCopiedHost] = useState(false);
 
   if (!isOpen) return null;
+
+  const currentHost =
+    typeof window !== 'undefined' ? window.location.hostname : '';
 
   const grammarSourcesSummary = extractGrammarSourcesSummary(
     knowledgeBase.grammars,
@@ -61,6 +69,13 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   );
   const activeGrammarSources =
     knowledgeBase.selectedGrammarSources ?? grammarSourcesSummary.map((s) => s.name);
+
+  const handleCopyHostname = () => {
+    if (!currentHost || typeof navigator === 'undefined') return;
+    navigator.clipboard?.writeText(currentHost);
+    setCopiedHost(true);
+    setTimeout(() => setCopiedHost(false), 2500);
+  };
 
   const handleVocabFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -153,9 +168,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         `Đồng bộ đám mây OnTapTuVung thành công: ${res.vocabulary.length} từ vựng.`
       );
     } catch (err: any) {
-      setError(
-        `Lưu ý kết nối Popup Google (${err?.code || 'Auth'}): Nếu domain xem trước chưa được thêm vào Authorized Domains của Firebase, bạn có thể nhập trực tiếp UID ở ô bên dưới hoặc dùng tab Nhập File Backup JSON.`
-      );
+      setError(err?.message || 'Lỗi kết nối Google Firebase OnTapTuVung.');
     } finally {
       setLoading(false);
     }
@@ -184,9 +197,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         `Đồng bộ đám mây OnTapNguPhap thành công: ${res.grammars.length} mẫu ngữ pháp (${res.grammarSources.length} nguồn: ${res.grammarSources.join(', ')}).`
       );
     } catch (err: any) {
-      setError(
-        `Lưu ý kết nối Popup Google (${err?.code || 'Auth'}): Nếu domain xem trước chưa được thêm vào Authorized Domains của Firebase, bạn có thể nhập trực tiếp UID ở ô bên dưới hoặc dùng tab Nhập File Backup JSON.`
-      );
+      setError(err?.message || 'Lỗi kết nối Google Firebase OnTapNguPhap.');
     } finally {
       setLoading(false);
     }
@@ -259,7 +270,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               Đồng bộ lịch sử từ OnTapTuVung & OnTapNguPhap
             </h2>
             <p className="text-xs text-stone-500">
-              Nạp danh sách từ vựng, ngữ pháp và mức độ thuộc lòng (Lv1–Lv8) để AI tạo lộ trình và đề thi thực chiến.
+              Nạp danh sách từ vựng, ngữ pháp và mức độ thuộc lòng (Lv1–Lv8) thực tế của bạn (không sử dụng dữ liệu mẫu).
             </p>
           </div>
           <button
@@ -273,7 +284,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         </div>
 
         {/* Current Sync Status Summary */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-[#FFF7F8] p-4 rounded-2xl border border-pink-200/70">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-[#FAF7F7] p-4 rounded-2xl border border-pink-200/70">
           <div className="space-y-1">
             <div className="flex items-center justify-between text-xs text-stone-500">
               <span>Kho Từ Vựng (OnTapTuVung)</span>
@@ -291,7 +302,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               {knowledgeBase.vocabulary.length} từ vựng
             </div>
             <div className="text-xs text-stone-500 truncate">
-              {knowledgeBase.syncSourceVocab || 'Chưa đồng bộ'}
+              {knowledgeBase.syncSourceVocab || 'Chưa đồng bộ (Đang trống)'}
             </div>
           </div>
 
@@ -312,7 +323,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               {knowledgeBase.grammars.length} cấu trúc
             </div>
             <div className="text-xs text-stone-500 truncate">
-              {knowledgeBase.syncSourceGrammar || 'Chưa đồng bộ'}
+              {knowledgeBase.syncSourceGrammar || 'Chưa đồng bộ (Đang trống)'}
             </div>
           </div>
         </div>
@@ -401,7 +412,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     2. File Backup Ngữ Pháp
                   </h3>
                   <p className="text-xs text-stone-500 leading-relaxed">
-                    Tải file JSON chứa <code className="text-pink-700">grammars</code>, <code className="text-pink-700">groups</code>, <code className="text-pink-700">reviewHistory</code> từ web <strong>OnTapNguPhap</strong>.
+                    Tải file JSON chứa <code className="text-pink-700">grammars</code>, <code className="text-pink-700">sources</code>, <code className="text-pink-700">reviewHistory</code> từ web <strong>OnTapNguPhap</strong>.
                   </p>
                 </div>
 
@@ -422,7 +433,29 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
         {/* Tab 2: Firebase Cloud Sync */}
         {activeTab === 'firebase' && (
-          <div className="space-y-5">
+          <div className="space-y-4">
+            {/* Domain Authorization Helper Banner */}
+            {currentHost && !currentHost.includes('github.io') && (
+              <div className="p-3.5 rounded-2xl bg-[#FAF7F7] border border-pink-200 text-xs text-stone-700 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-bold text-pink-800">
+                    Lưu ý khi đăng nhập Firebase trên domain xem trước:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleCopyHostname}
+                    className="px-2.5 py-1 bg-white hover:bg-pink-50 border border-pink-200 rounded-lg text-[11px] font-semibold text-pink-700 flex items-center gap-1 cursor-pointer"
+                  >
+                    <Copy className="w-3 h-3" />
+                    <span>{copiedHost ? 'Đã copy domain!' : `Copy: ${currentHost}`}</span>
+                  </button>
+                </div>
+                <p className="text-[11px] text-stone-600 leading-relaxed">
+                  Trên GitHub Pages (<code className="text-pink-700">mngoc209.github.io</code>), đăng nhập Google hoạt động ngay. Nếu bạn đang thử trên môi trường xem trước, hãy thêm domain <code className="text-pink-700">{currentHost}</code> vào <strong>Firebase Console → Authentication → Settings → Authorized domains</strong> (vì Firestore của 2 web yêu cầu xác thực Google <code className="text-pink-700">request.auth.uid == uid</code>).
+                </p>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Vocab Firebase Card */}
               <div className="border border-pink-200 rounded-2xl p-5 space-y-4 bg-white">
@@ -452,7 +485,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     htmlFor="vocab-uid-input"
                     className="block text-xs font-medium text-stone-600"
                   >
-                    Hoặc tải trực tiếp bằng Firebase UID:
+                    Hoặc nhập UID (sẽ tự xác thực Google nếu cần):
                   </label>
                   <div className="flex items-center gap-2">
                     <input
@@ -467,7 +500,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                       type="button"
                       disabled={loading || !vocabUid.trim()}
                       onClick={handlePullVocabByUid}
-                      className="px-3 py-2 bg-stone-900 hover:bg-stone-800 disabled:bg-stone-300 text-white rounded-xl text-xs font-semibold whitespace-nowrap cursor-pointer"
+                      className="px-3 py-2 bg-stone-800 hover:bg-stone-700 disabled:bg-stone-300 text-white rounded-xl text-xs font-semibold whitespace-nowrap cursor-pointer"
                     >
                       Tải về
                     </button>
@@ -503,7 +536,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     htmlFor="grammar-uid-input"
                     className="block text-xs font-medium text-stone-600"
                   >
-                    Hoặc tải trực tiếp bằng Firebase UID:
+                    Hoặc nhập UID (sẽ tự xác thực Google nếu cần):
                   </label>
                   <div className="flex items-center gap-2">
                     <input
@@ -518,7 +551,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                       type="button"
                       disabled={loading || !grammarUid.trim()}
                       onClick={handlePullGrammarByUid}
-                      className="px-3 py-2 bg-stone-900 hover:bg-stone-800 disabled:bg-stone-300 text-white rounded-xl text-xs font-semibold whitespace-nowrap cursor-pointer"
+                      className="px-3 py-2 bg-stone-800 hover:bg-stone-700 disabled:bg-stone-300 text-white rounded-xl text-xs font-semibold whitespace-nowrap cursor-pointer"
                     >
                       Tải về
                     </button>
@@ -531,7 +564,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
         {/* Grammar Source Selection ("Chọn nguồn Ngữ pháp đang ôn · Bỏ nguồn không học") */}
         {grammarSourcesSummary.length > 0 && onToggleGrammarSource && (
-          <div className="p-4 rounded-2xl bg-[#FFF7F8] border border-pink-200/80 space-y-2.5">
+          <div className="p-4 rounded-2xl bg-[#FAF7F7] border border-pink-200/80 space-y-2.5">
             <div className="text-xs font-bold text-pink-800">
               Chọn nguồn Ngữ pháp đưa vào lộ trình ({activeGrammarSources.length}/{grammarSourcesSummary.length} nguồn đang bật)
             </div>
@@ -577,13 +610,28 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             </span>
           </label>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-5 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer self-end sm:self-auto"
-          >
-            Hoàn tất
-          </button>
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            {onClearAllData &&
+              (knowledgeBase.vocabulary.length > 0 ||
+                knowledgeBase.grammars.length > 0) && (
+                <button
+                  type="button"
+                  onClick={onClearAllData}
+                  className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Xóa dữ liệu đã nạp</span>
+                </button>
+              )}
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-5 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+            >
+              Hoàn tất
+            </button>
+          </div>
         </div>
       </div>
     </div>

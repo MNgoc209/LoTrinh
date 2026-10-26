@@ -9,323 +9,131 @@ import {
   DailyProgressReport,
 } from '../types';
 import { calculateDaysRemaining } from './studyLogic';
-import { buildStructuredDailyTasks } from './jlptMondaiTaxonomy';
+
+const LEGACY_KEYS_TO_PURGE = [
+  'jlpt_n3_profile',
+  'jlpt_n3_roadmap',
+  'jlpt_n3_roadmap_v2',
+  'jlpt_n3_roadmap_v3_mondai',
+  'jlpt_n3_bugs',
+  'jlpt_n3_bugs_v2',
+  'jlpt_n3_knowledge_base',
+  'jlpt_n3_knowledge_base_v2',
+  'jlpt_n3_daily_study_log_v1',
+  'jlpt_n3_daily_reports_v1',
+];
 
 const STORAGE_KEYS = {
-  PROFILE: 'jlpt_n3_profile',
-  ROADMAP: 'jlpt_n3_roadmap_v3_mondai',
-  BUGS: 'jlpt_n3_bugs',
-  KNOWLEDGE_BASE: 'jlpt_n3_knowledge_base_v2',
-  STUDY_LOG: 'jlpt_n3_daily_study_log_v1',
-  DAILY_REPORTS: 'jlpt_n3_daily_reports_v1',
+  PROFILE: 'jlpt_n3_profile_v4_clean',
+  ROADMAP: 'jlpt_n3_roadmap_v4_clean',
+  BUGS: 'jlpt_n3_bugs_v4_clean',
+  KNOWLEDGE_BASE: 'jlpt_n3_knowledge_base_v4_clean',
+  STUDY_LOG: 'jlpt_n3_daily_study_log_v4_clean',
+  DAILY_REPORTS: 'jlpt_n3_daily_reports_v4_clean',
+  LEGACY_PURGED_FLAG: 'jlpt_n3_legacy_samples_purged_v4',
 };
+
+function purgeLegacySampleStorageOnce(): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    if (!localStorage.getItem(STORAGE_KEYS.LEGACY_PURGED_FLAG)) {
+      for (const oldKey of LEGACY_KEYS_TO_PURGE) {
+        localStorage.removeItem(oldKey);
+      }
+      localStorage.setItem(STORAGE_KEYS.LEGACY_PURGED_FLAG, 'true');
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+purgeLegacySampleStorageOnce();
 
 export const DEFAULT_EXAM_DATE = '2026-12-06';
 
 export const DEFAULT_PROFILE: UserProfile = {
   examDate: DEFAULT_EXAM_DATE,
   confidence: {
-    kanji: 4,
-    vocabulary: 4,
+    kanji: 3,
+    vocabulary: 3,
     grammarMondai1_2: 3,
-    grammarMondai3_4_5: 2,
+    grammarMondai3_4_5: 3,
     readingShort: 3,
-    readingMediumLong: 2,
-    listening: 2,
-    notes: 'Kanji vững, Yếu Mondai 2 (Dấu sao ★ ngữ pháp), Đọc hiểu Trung/Trường văn và Nghe hội thoại Mondai 1-2',
+    readingMediumLong: 3,
+    listening: 3,
+    notes: '',
   },
-  streakDays: 4,
+  streakDays: 0,
   lastActiveDate: new Date().toISOString().split('T')[0],
-  todayStudyMinutes: 35,
+  todayStudyMinutes: 0,
   studyIntensity: 'intensive',
 };
 
-const now = Date.now();
-const hourMs = 3600000;
-const dayMs = 86400000;
+export const INITIAL_SEED_VOCABULARY: ImportedVocabItem[] = [];
 
-export const INITIAL_SEED_VOCABULARY: ImportedVocabItem[] = [
-  {
-    id: 'v_101',
-    word: '我慢',
-    reading: 'がまん',
-    meaning: 'Kiên nhẫn, chịu đựng, nhẫn nại',
-    level: 1,
-    learned: true,
-    nextReview: now - 2 * hourMs,
-  },
-  {
-    id: 'v_102',
-    word: '確認',
-    reading: 'かくにん',
-    meaning: 'Xác nhận, kiểm tra kỹ',
-    level: 2,
-    learned: true,
-    nextReview: now - hourMs,
-  },
-  {
-    id: 'v_103',
-    word: '変更',
-    reading: 'へんこう',
-    meaning: 'Thay đổi, điều chỉnh (lịch trình, kế hoạch)',
-    level: 2,
-    learned: true,
-    nextReview: now + 4 * hourMs,
-  },
-  {
-    id: 'v_104',
-    word: 'のんびり',
-    reading: 'のんびり',
-    meaning: 'Thong thả, thư thái, thảnh thơi',
-    level: 1,
-    learned: true,
-    nextReview: now - 3 * hourMs,
-  },
-  {
-    id: 'v_105',
-    word: 'めったに',
-    reading: 'めったに',
-    meaning: 'Hiếm khi (+ thể phủ định 〜ない)',
-    level: 2,
-    learned: true,
-    nextReview: now - hourMs,
-  },
-  {
-    id: 'v_106',
-    word: '効率',
-    reading: 'こうりつ',
-    meaning: 'Hiệu suất, năng suất làm việc',
-    level: 3,
-    learned: true,
-    nextReview: now - 30 * 60000,
-  },
-  {
-    id: 'v_107',
-    word: '説得',
-    reading: 'せっとく',
-    meaning: 'Thuyết phục người khác',
-    level: 3,
-    learned: true,
-    nextReview: now + dayMs,
-  },
-  {
-    id: 'v_108',
-    word: '影響',
-    reading: 'えいきょう',
-    meaning: 'Ảnh hưởng, tác động',
-    level: 5,
-    learned: true,
-    nextReview: now + 3 * dayMs,
-  },
-  {
-    id: 'v_109',
-    word: '節約',
-    reading: 'せつやく',
-    meaning: 'Tiết kiệm (tiền bạc, điện nước, thời gian)',
-    level: 6,
-    learned: true,
-    nextReview: now + 5 * dayMs,
-  },
-  {
-    id: 'v_110',
-    word: '提出',
-    reading: 'ていしゅつ',
-    meaning: 'Nộp (báo cáo, tài liệu, bài tập)',
-    level: 7,
-    learned: true,
-    nextReview: now + 7 * dayMs,
-  },
-];
-
-export const INITIAL_SEED_GRAMMARS: ImportedGrammarItem[] = [
-  {
-    id: 'g_201',
-    name: '〜にもかかわらず',
-    structure: 'V / A / N + にもかかわらず',
-    meaning: 'Mặc dù... thế nhưng vẫn... (mang sắc thái bất ngờ, cảm kích)',
-    example: '雨が降っているにもかかわらず、多くの人が集まった。',
-    similarText: 'Phân biệt với 〜のに (mang tính phàn nàn cá nhân nhiều hơn, văn nói).',
-    level: 1,
-    nextReviewDate: now - 2 * hourMs,
-    groupName: 'Nghịch đảo / Nhượng bộ',
-    sourceName: 'Nguồn 1: Shinkanzen N3',
-    sourceNames: ['Nguồn 1: Shinkanzen N3'],
-  },
-  {
-    id: 'g_202',
-    name: '〜うちに',
-    structure: 'Vる / Vている / Vない / A-い / Nの + うちに',
-    meaning: 'Nhân lúc còn... / Trong khi đang... (trước khi trạng thái thay đổi)',
-    example: '温かいうちに食べてください。',
-    similarText: 'Phân biệt với 〜あいだに (chỉ mốc thời gian khách quan).',
-    level: 2,
-    nextReviewDate: now - hourMs,
-    groupName: 'Thời gian',
-    sourceName: 'Nguồn 2: Mimikara Oboeru N3',
-    sourceNames: ['Nguồn 2: Mimikara Oboeru N3'],
-  },
-  {
-    id: 'g_203',
-    name: '〜だけでなく〜も',
-    structure: 'V / A / N + だけでなく、〜も',
-    meaning: 'Không những... mà còn...',
-    example: '彼女は英語だけでなく、フランス語も話せる。',
-    similarText: 'Tương đương với 〜ばかりでなく.',
-    level: 2,
-    nextReviewDate: now - 30 * 60000,
-    groupName: 'Bổ sung',
-    sourceName: 'Nguồn 1: Shinkanzen N3',
-    sourceNames: ['Nguồn 1: Shinkanzen N3'],
-  },
-  {
-    id: 'g_204',
-    name: 'まるで〜かのように',
-    structure: 'まるで + V / N + かのように / かのようだ',
-    meaning: 'Cứ như thể là... (so sánh ví von điều không có thật)',
-    example: '彼はまるで何も知らなかったかのように振る舞っている。',
-    similarText: 'Đi kèm phó từ まるで ở đầu vế.',
-    level: 1,
-    nextReviewDate: now - 4 * hourMs,
-    groupName: 'Giả định / Ví von',
-    sourceName: 'Nguồn 1: Shinkanzen N3',
-    sourceNames: ['Nguồn 1: Shinkanzen N3'],
-  },
-  {
-    id: 'g_205',
-    name: '〜ようにする',
-    structure: 'Vる / Vない + ようにする',
-    meaning: 'Cố gắng duy trì thói quen làm (hoặc không làm) việc gì đó',
-    example: '健康のために、毎日野菜を食べるようにしている。',
-    similarText: 'Phân biệt với 〜ようになる (sự thay đổi trạng thái/năng lực).',
-    level: 3,
-    nextReviewDate: now + dayMs,
-    groupName: 'Ý chí / Thói quen',
-    sourceName: 'Nguồn 2: Mimikara Oboeru N3',
-    sourceNames: ['Nguồn 2: Mimikara Oboeru N3'],
-  },
-  {
-    id: 'g_206',
-    name: '〜おかげで',
-    structure: 'V / A / Nの + おかげで',
-    meaning: 'Nhờ vào... (mà có kết quả tốt đẹp)',
-    example: '先生のおかげで、N3に合格できました。',
-    similarText: 'Trái nghĩa với 〜せいで (đổ lỗi kết quả xấu).',
-    level: 6,
-    nextReviewDate: now + 5 * dayMs,
-    groupName: 'Nguyên nhân',
-    sourceName: 'Nguồn 2: Mimikara Oboeru N3',
-    sourceNames: ['Nguồn 2: Mimikara Oboeru N3'],
-  },
-];
+export const INITIAL_SEED_GRAMMARS: ImportedGrammarItem[] = [];
 
 export const INITIAL_KNOWLEDGE_BASE: KnowledgeBaseData = {
-  vocabulary: INITIAL_SEED_VOCABULARY,
-  grammars: INITIAL_SEED_GRAMMARS,
-  vocabReviewHistory: {
-    [new Date().toISOString().split('T')[0]]: ['v_101', 'v_102', 'v_104'],
-  },
-  grammarReviewHistory: {
-    [new Date().toISOString().split('T')[0]]: ['g_201', 'g_202', 'g_204'],
-  },
-  grammarSources: ['Nguồn 1: Shinkanzen N3', 'Nguồn 2: Mimikara Oboeru N3'],
-  selectedGrammarSources: ['Nguồn 1: Shinkanzen N3', 'Nguồn 2: Mimikara Oboeru N3'],
-  lastSyncedVocabAt: now - 3600000,
-  lastSyncedGrammarAt: now - 3600000,
-  syncSourceVocab: 'Dữ liệu mẫu OnTapTuVung (10 từ)',
-  syncSourceGrammar: 'Dữ liệu mẫu OnTapNguPhap (6 cấu trúc · 2 nguồn)',
+  vocabulary: [],
+  grammars: [],
+  vocabReviewHistory: {},
+  grammarReviewHistory: {},
+  grammarSources: [],
+  selectedGrammarSources: [],
 };
 
-export const INITIAL_SEED_BUGS: BugRecord[] = [
-  {
-    id: 'bug_1',
-    questionText: '山田さんは、忙しい＿＿＿、私の引越しを手伝ってくれた。',
-    category: 'grammar',
-    subCategory: 'Ngữ pháp · Mondai 1 — Chọn cấu trúc ngữ pháp câu đơn',
-    options: ['にもかかわらず', 'によって', 'につれて', 'をはじめ'],
-    userAnswerIndex: 2,
-    correctAnswerIndex: 0,
-    explanation:
-      'Cấu trúc 「〜にもかかわらず」: Mặc dù... thế nhưng (thể hiện sự ngạc nhiên, cảm kích). 山田さんは、忙しいにもかかわらず... = Anh Yamada bận rộn là thế, vậy mà vẫn giúp tôi chuyển nhà.',
-    timestamp: now - dayMs * 2,
-    nextReviewDate: now - hourMs,
-    reviewIntervalDays: 1,
-    reviewCount: 0,
-    resolved: false,
-  },
-  {
-    id: 'bug_2',
-    questionText: '最近のスマートフォンは機能が多すぎて、＿＿＿使いこなせない。',
-    category: 'vocabulary',
-    subCategory: 'Từ vựng · Mondai 3 — Điền từ vào chỗ trống theo ngữ cảnh (文脈規定)',
-    options: ['とても', 'めったに', 'まるで', 'ぜひ'],
-    userAnswerIndex: 1,
-    correctAnswerIndex: 0,
-    explanation:
-      'Đi với thể phủ định 「〜ない」, phó từ 「とても〜ない」 nghĩa là "hoàn toàn không thể / khó lòng mà...".',
-    timestamp: now - dayMs,
-    nextReviewDate: now - 2 * hourMs,
-    reviewIntervalDays: 1,
-    reviewCount: 0,
-    resolved: false,
-  },
-  {
-    id: 'bug_3',
-    questionText: 'あの先生は厳しい ＿＿＿ ★ ＿＿＿ ＿＿＿ 人気が高い。',
-    category: 'grammar',
-    subCategory: 'Ngữ pháp · Mondai 2 — Sắp xếp câu dấu sao ★ (文の組み立て)',
-    options: ['教え方が', 'けれど', '親切なので', 'とても'],
-    userAnswerIndex: 3,
-    correctAnswerIndex: 0,
-    explanation:
-      'Câu hoàn chỉnh: 「あの先生は厳しい 【けれど】 ★【教え方が】 【とても】 【親切なので】 人気が高い。」(Thầy giáo đó nghiêm khắc nhưng cách dạy rất tận tình nên rất được mến mộ). Vị trí ngôi sao là 「教え方が」.',
-    timestamp: now - dayMs * 3,
-    nextReviewDate: now - 1000,
-    reviewIntervalDays: 1,
-    reviewCount: 1,
-    resolved: false,
-  },
-];
-
-const initialTasks = buildStructuredDailyTasks({
-  pendingBugsCount: 3,
-  priorityVocab: INITIAL_SEED_VOCABULARY,
-  priorityGrammar: INITIAL_SEED_GRAMMARS,
-});
+export const INITIAL_SEED_BUGS: BugRecord[] = [];
 
 export const INITIAL_SEED_ROADMAP: DailyRoadmap = {
   date: new Date().toISOString().split('T')[0],
   daysRemaining: calculateDaysRemaining(DEFAULT_EXAM_DATE),
   focusMessage:
-    'Lộ trình được chia rõ theo 4 Mục (Từ vựng 5 Mondai · Ngữ pháp 3 Mondai · Đọc hiểu 4 Mondai · Nghe hiểu 5 Mondai) lồng ghép trực tiếp nhóm Lv1–Lv3 từ OnTapTuVung & OnTapNguPhap.',
-  targetScoreGoal: 'Hoàn thành đầy đủ các Mondai trọng tâm của 4 kỹ năng & Tổng kết báo cáo tiến độ lúc 19:00',
-  totalEstimatedMinutes: initialTasks.reduce((sum, t) => sum + t.estimatedMinutes, 0),
-  tasks: initialTasks,
-  tipsForToday: [
-    'Mỗi nhiệm vụ và bài ôn thêm đều ghi rõ thuộc Kỹ năng nào và Mondai số mấy trong đề thi thật để bạn biết chính xác mình đang rèn dạng câu hỏi nào.',
-    'Vào lúc 19:00 tối nay, hệ thống sẽ tự động tổng hợp Báo cáo Tiến độ (Điểm mạnh, Tiến bộ, Điểm yếu & Bài ôn thêm) để lên lộ trình thích ứng cho ngày mai.',
-  ],
+    'Chưa có dữ liệu từ vựng hoặc ngữ pháp. Hãy bấm "Đồng bộ dữ liệu" để nạp file Backup JSON hoặc kết nối Cloud Firebase từ OnTapTuVung & OnTapNguPhap để tạo lộ trình học.',
+  targetScoreGoal: 'Đồng bộ dữ liệu cá nhân từ OnTapTuVung & OnTapNguPhap để bắt đầu',
+  totalEstimatedMinutes: 0,
+  tasks: [],
+  tipsForToday: [],
 };
 
-export function createEmptyStudyLog(dateStr = new Date().toISOString().split('T')[0]): DailyStudyLog {
+export function createEmptyStudyLog(
+  dateStr = new Date().toISOString().split('T')[0]
+): DailyStudyLog {
   return {
     date: dateStr,
-    studyMinutes: 35,
+    studyMinutes: 0,
     completedTaskCount: 0,
-    totalTaskCount: initialTasks.length,
+    totalTaskCount: 0,
     skillStats: {
-      vocabulary: { attempted: 4, correct: 3 },
-      grammar: { attempted: 5, correct: 3 },
-      reading: { attempted: 3, correct: 2 },
-      listening: { attempted: 3, correct: 1 },
-      review: { attempted: 2, correct: 2 },
+      vocabulary: { attempted: 0, correct: 0 },
+      grammar: { attempted: 0, correct: 0 },
+      reading: { attempted: 0, correct: 0 },
+      listening: { attempted: 0, correct: 0 },
+      review: { attempted: 0, correct: 0 },
     },
     bonusSessions: [],
-    improvedItems: ['確認 (Lv1→Lv2)', '〜うちに (Lv1→Lv2)'],
-    weakItems: ['〜にもかかわらず (Lv1)', '我慢 (Lv1)'],
+    improvedItems: [],
+    weakItems: [],
   };
 }
 
+export function clearAllAppStorage(): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    for (const key of Object.values(STORAGE_KEYS)) {
+      if (key !== STORAGE_KEYS.LEGACY_PURGED_FLAG) {
+        localStorage.removeItem(key);
+      }
+    }
+    for (const oldKey of LEGACY_KEYS_TO_PURGE) {
+      localStorage.removeItem(oldKey);
+    }
+  } catch (err) {
+    console.warn('Failed to clear storage', err);
+  }
+}
+
 export function loadUserProfile(): UserProfile {
+  purgeLegacySampleStorageOnce();
   try {
     const data = localStorage.getItem(STORAGE_KEYS.PROFILE);
     if (data) return JSON.parse(data);
@@ -344,6 +152,7 @@ export function saveUserProfile(profile: UserProfile): void {
 }
 
 export function loadRoadmap(): DailyRoadmap {
+  purgeLegacySampleStorageOnce();
   try {
     const data = localStorage.getItem(STORAGE_KEYS.ROADMAP);
     if (data) return JSON.parse(data);
@@ -362,6 +171,7 @@ export function saveRoadmap(roadmap: DailyRoadmap): void {
 }
 
 export function loadBugRecords(): BugRecord[] {
+  purgeLegacySampleStorageOnce();
   try {
     const data = localStorage.getItem(STORAGE_KEYS.BUGS);
     if (data) return JSON.parse(data);
@@ -380,9 +190,20 @@ export function saveBugRecords(bugs: BugRecord[]): void {
 }
 
 export function loadKnowledgeBase(): KnowledgeBaseData {
+  purgeLegacySampleStorageOnce();
   try {
     const data = localStorage.getItem(STORAGE_KEYS.KNOWLEDGE_BASE);
-    if (data) return JSON.parse(data);
+    if (data) {
+      const parsed: KnowledgeBaseData = JSON.parse(data);
+      // Guard against any old sample data
+      if (
+        parsed.syncSourceVocab?.includes('Dữ liệu mẫu') ||
+        parsed.syncSourceGrammar?.includes('Dữ liệu mẫu')
+      ) {
+        return INITIAL_KNOWLEDGE_BASE;
+      }
+      return parsed;
+    }
   } catch (err) {
     console.warn('Failed to load knowledge base from storage', err);
   }
@@ -398,6 +219,7 @@ export function saveKnowledgeBase(kb: KnowledgeBaseData): void {
 }
 
 export function loadTodayStudyLog(): DailyStudyLog {
+  purgeLegacySampleStorageOnce();
   const todayStr = new Date().toISOString().split('T')[0];
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.STUDY_LOG);
@@ -420,6 +242,7 @@ export function saveTodayStudyLog(log: DailyStudyLog): void {
 }
 
 export function loadDailyReports(): DailyProgressReport[] {
+  purgeLegacySampleStorageOnce();
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.DAILY_REPORTS);
     if (raw) return JSON.parse(raw);
