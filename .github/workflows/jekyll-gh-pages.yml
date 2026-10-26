@@ -38,6 +38,11 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./dist
+      - name: Build Vite production bundle
+        run: npm run build
+        env:
+          VITE_TUVUNG_FIREBASE_API_KEY: ${{ secrets.VITE_TUVUNG_FIREBASE_API_KEY }}
+          VITE_NGUPHAP_FIREBASE_API_KEY: ${{ secrets.VITE_NGUPHAP_FIREBASE_API_KEY }}
 
   deploy:
     environment:
