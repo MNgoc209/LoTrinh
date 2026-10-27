@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Upload,
@@ -12,8 +12,11 @@ import {
   Copy,
   Sparkles,
   ClipboardPaste,
+  Smartphone,
+  ArrowUpDown,
+  Download,
 } from 'lucide-react';
-import { KnowledgeBaseData } from '../types';
+import { KnowledgeBaseData, CrossDeviceWorkspaceSnapshot } from '../types';
 import {
   parseVocabBackupJson,
   parseGrammarBackupJson,
@@ -26,6 +29,10 @@ import {
   signInAndPullGrammarCloud,
   inspectSharedBrowserStorage,
   pullFromSharedBrowserStorage,
+  generateDevicePairingCode,
+  applyDevicePairingCode,
+  getDeviceLabel,
+  discoverAllFirebaseSessions,
 } from '../utils/firebaseExternalSync';
 
 interface DataSyncModalProps {
@@ -34,11 +41,18 @@ interface DataSyncModalProps {
   knowledgeBase: KnowledgeBaseData;
   vocabUid?: string;
   grammarUid?: string;
+  cloudSyncKey?: string;
+  lastCloudSyncedAt?: number;
+  lastSyncedDevice?: string;
   onUpdateKnowledgeBase: (
     updated: Partial<KnowledgeBaseData>,
     uids?: { vocabUid?: string; grammarUid?: string },
     regenerateRoadmap?: boolean
   ) => Promise<void>;
+  onPushWorkspaceToCloud?: (customSyncKey?: string) => Promise<string>;
+  onPullWorkspaceFromCloud?: (customSyncKey?: string) => Promise<string>;
+  onExportFullSnapshotJson?: () => string;
+  onImportFullSnapshotJson?: (rawJson: string) => void;
   onToggleGrammarSource?: (sourceName: string) => void;
   onClearAllData?: () => void;
 }
@@ -49,13 +63,25 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   knowledgeBase,
   vocabUid: initialVocabUid = '',
   grammarUid: initialGrammarUid = '',
+  cloudSyncKey: initialCloudSyncKey = '',
+  lastCloudSyncedAt,
+  lastSyncedDevice,
   onUpdateKnowledgeBase,
+  onPushWorkspaceToCloud,
+  onPullWorkspaceFromCloud,
+  onExportFullSnapshotJson,
+  onImportFullSnapshotJson,
   onToggleGrammarSource,
   onClearAllData,
 }) => {
-  const [activeTab, setActiveTab] = useState<'backup' | 'firebase'>('backup');
+  const [activeTab, setActiveTab] = useState<'devices' | 'backup' | 'firebase'>('devices');
   const [vocabUid, setVocabUid] = useState(initialVocabUid);
   const [grammarUid, setGrammarUid] = useState(initialGrammarUid);
+  const [syncRoomKey, setSyncRoomKey] = useState(initialCloudSyncKey || 'mngoc209');
+  const [pairingCodeInput, setPairingCodeInput] = useState('');
+  const [generatedPairingCode, setGeneratedPairingCode] = useState<string | null>(null);
+  const [hasFirebaseCloudSession, setHasFirebaseCloudSession] = useState(false);
+
   const [autoRegenerate, setAutoRegenerate] = useState(true);
   const [loading, setLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -64,9 +90,23 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
   const [pastedJsonText, setPastedJsonText] = useState('');
   const [showPasteBox, setShowPasteBox] = useState(false);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    discoverAllFirebaseSessions().then((bundle) => {
+      setHasFirebaseCloudSession(Boolean(bundle.vocab || bundle.grammar));
+      if (bundle.vocab?.uid && !vocabUid) setVocabUid(bundle.vocab.uid);
+      if (bundle.grammar?.uid && !grammarUid) setGrammarUid(bundle.grammar.uid);
+      if (bundle.syncRoomKey && !initialCloudSyncKey) setSyncRoomKey(bundle.syncRoomKey);
+    });
+    generateDevicePairingCode(syncRoomKey).then((code) => {
+      setGeneratedPairingCode(code);
+    });
+  }, [isOpen, vocabUid, grammarUid, initialCloudSyncKey, syncRoomKey]);
+
   if (!isOpen) return null;
 
   const sharedStorageInfo = inspectSharedBrowserStorage();
+  const currentDevice = getDeviceLabel();
 
   const grammarSourcesSummary = extractGrammarSourcesSummary(
     knowledgeBase.grammars,
@@ -90,7 +130,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       const { vocabResult, grammarResult } = pullFromSharedBrowserStorage();
       if (!vocabResult && !grammarResult) {
         setError(
-          'Không tìm thấy dữ liệu lưu sẵn trên domain trình duyệt hiện tại. Nếu bạn đang mở trên môi trường xem trước (khác domain mngoc209.github.io), hãy dùng "Chọn file JSON" hoặc "Dán nhanh dữ liệu" bên dưới!'
+          'Không tìm thấy dữ liệu lưu sẵn trên trình duyệt hiện tại. Nếu bạn đang mở trên thiết bị mới (Điện thoại / Máy tính khác), hãy dùng tab "Đồng bộ giữa các thiết bị" bên dưới!'
         );
         setLoading(false);
         return;
@@ -125,6 +165,94 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
       );
     } catch (err: any) {
       setError(err?.message || 'Lỗi đọc bộ nhớ trình duyệt.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePushCrossDevice = async () => {
+    if (!onPushWorkspaceToCloud) return;
+    setError(null);
+    setStatusMessage(null);
+    setLoading(true);
+    try {
+      const msg = await onPushWorkspaceToCloud(syncRoomKey.trim());
+      const code = await generateDevicePairingCode(syncRoomKey.trim());
+      setGeneratedPairingCode(code);
+      setStatusMessage(msg);
+    } catch (err: any) {
+      setError(err?.message || 'Không thể đẩy dữ liệu lên đám mây.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePullCrossDevice = async () => {
+    if (!onPullWorkspaceFromCloud) return;
+    setError(null);
+    setStatusMessage(null);
+    setLoading(true);
+    try {
+      const msg = await onPullWorkspaceFromCloud(syncRoomKey.trim());
+      setStatusMessage(msg);
+    } catch (err: any) {
+      setError(err?.message || 'Không thể tải dữ liệu đồng bộ về thiết bị này.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleApplyPairingOrSnapshot = async () => {
+    const raw = pairingCodeInput.trim();
+    if (!raw) return;
+    setError(null);
+    setStatusMessage(null);
+    setLoading(true);
+
+    try {
+      // Case 1: LTN3-... Firebase Cloud Pairing Code
+      if (raw.startsWith('LTN3-')) {
+        const bundle = applyDevicePairingCode(raw);
+        setHasFirebaseCloudSession(Boolean(bundle.vocab || bundle.grammar));
+        if (bundle.syncRoomKey) setSyncRoomKey(bundle.syncRoomKey);
+        if (onPullWorkspaceFromCloud) {
+          const msg = await onPullWorkspaceFromCloud(bundle.syncRoomKey || syncRoomKey);
+          setStatusMessage(
+            `Đã liên kết đám mây thành công! ${msg} Từ giờ thiết bị này sẽ tự động đồng bộ 2 chiều.`
+          );
+        } else {
+          setStatusMessage('Đã lưu Mã Liên Kết Thiết Bị Đám Mây thành công!');
+        }
+        setPairingCodeInput('');
+        setLoading(false);
+        return;
+      }
+
+      // Case 2: Full Workspace Snapshot JSON (or Vocab/Grammar JSON)
+      const parsedJson = JSON.parse(raw);
+      if (
+        parsedJson &&
+        parsedJson.roadmap &&
+        parsedJson.profile &&
+        onImportFullSnapshotJson
+      ) {
+        onImportFullSnapshotJson(raw);
+        setPairingCodeInput('');
+        setStatusMessage(
+          `Đã đồng bộ trọn vẹn toàn bộ Lộ trình, Kho Từ/Ngữ pháp, Bug Tracker và Báo cáo 19:00 từ thiết bị "${parsedJson.deviceLabel || 'Máy tính'}"!`
+        );
+        setLoading(false);
+        return;
+      }
+
+      throw new Error(
+        'Mã vừa nhập không đúng định dạng Mã Liên Kết (LTN3-...) hoặc Gói Đồng Bộ Thiết Bị.'
+      );
+    } catch (err: any) {
+      setError(
+        err?.message ||
+          'Mã liên kết không hợp lệ. Hãy copy đúng Mã Liên Kết (LTN3-...) hoặc Gói Chuyển Thiết Bị từ thiết bị kia.'
+      );
     } finally {
       setLoading(false);
     }
@@ -209,10 +337,17 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
 
     try {
       const json = JSON.parse(trimmed);
+      if (json && json.roadmap && json.profile && onImportFullSnapshotJson) {
+        onImportFullSnapshotJson(trimmed);
+        setPastedJsonText('');
+        setStatusMessage('Đã khôi phục toàn bộ dữ liệu thiết bị thành công!');
+        setLoading(false);
+        return;
+      }
+
       const updates: Partial<KnowledgeBaseData> = {};
       const importedParts: string[] = [];
 
-      // Check if it contains vocabulary
       if (json.vocabulary || (Array.isArray(json) && json[0]?.word)) {
         const parsedV = parseVocabBackupJson(json);
         if (parsedV.vocabulary.length > 0) {
@@ -224,7 +359,6 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         }
       }
 
-      // Check if it contains grammars
       if (json.grammars || (Array.isArray(json) && (json[0]?.name || json[0]?.structure))) {
         const parsedG = parseGrammarBackupJson(json);
         if (parsedG.grammars.length > 0) {
@@ -263,6 +397,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     try {
       const res = await signInAndPullVocabCloud();
       setVocabUid(res.uid);
+      setHasFirebaseCloudSession(true);
       await onUpdateKnowledgeBase(
         {
           vocabulary: res.vocabulary,
@@ -273,6 +408,8 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         { vocabUid: res.uid },
         autoRegenerate
       );
+      const code = await generateDevicePairingCode(syncRoomKey);
+      setGeneratedPairingCode(code);
       setStatusMessage(
         `Đồng bộ đám mây OnTapTuVung thành công: ${res.vocabulary.length} từ vựng.`
       );
@@ -290,6 +427,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     try {
       const res = await signInAndPullGrammarCloud();
       setGrammarUid(res.uid);
+      setHasFirebaseCloudSession(true);
       await onUpdateKnowledgeBase(
         {
           grammars: res.grammars,
@@ -302,6 +440,8 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         { grammarUid: res.uid },
         autoRegenerate
       );
+      const code = await generateDevicePairingCode(syncRoomKey);
+      setGeneratedPairingCode(code);
       setStatusMessage(
         `Đồng bộ đám mây OnTapNguPhap thành công: ${res.grammars.length} mẫu ngữ pháp (${res.grammarSources.length} nguồn: ${res.grammarSources.join(', ')}).`
       );
@@ -364,6 +504,19 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
     }
   };
 
+  const handleDownloadFullWorkspaceFile = () => {
+    if (!onExportFullSnapshotJson) return;
+    const jsonStr = onExportFullSnapshotJson();
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `LoTrinh_N3_Sync_${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setStatusMessage('Đã tải xuống file Gói Đồng Bộ Toàn Thiết Bị (.json)!');
+  };
+
   return (
     <div
       role="dialog"
@@ -376,10 +529,10 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         <div className="flex items-start justify-between pb-4 border-b border-pink-100">
           <div className="space-y-1">
             <h2 id="sync-modal-title" className="text-xl font-bold text-slate-900">
-              Đồng bộ lịch sử từ OnTapTuVung & OnTapNguPhap
+              Đồng bộ Liên Thiết Bị & Kho Từ Vựng / Ngữ Pháp
             </h2>
             <p className="text-xs text-slate-500">
-              Nạp danh sách từ vựng, ngữ pháp, nguồn học và mức độ thuộc lòng (Lv1–Lv8) của bạn để tạo đề thi đúng từng dạng Mondai.
+              Đồng bộ Lộ trình hôm nay, Bug Tracker, Báo cáo 19:00 và dữ liệu OnTapTuVung / OnTapNguPhap giữa Máy tính & Điện thoại.
             </p>
           </div>
           <button
@@ -392,17 +545,17 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           </button>
         </div>
 
-        {/* Instant 1-Click Shared Browser Sync Banner (Works automatically on mngoc209.github.io) */}
+        {/* Instant 1-Click Shared Browser Sync Banner */}
         <div className="p-4 rounded-2xl bg-pink-50/80 border border-pink-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="space-y-1">
             <div className="text-xs font-bold text-pink-800 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-pink-600" />
+              <Sparkles className="w-3.5 h-3.5 text-pink-700" />
               <span>
-                Đồng bộ 1-Click trực tiếp từ Trình duyệt (Khuyên dùng trên mngoc209.github.io)
+                Đồng bộ 1-Click từ Trình duyệt (Trên mngoc209.github.io)
               </span>
             </div>
             <p className="text-[11px] text-slate-600 leading-relaxed">
-              Vì <strong>OnTapTuVung</strong>, <strong>OnTapNguPhap</strong> và <strong>LoTrinh</strong> cùng chạy trên <code className="text-pink-700 font-semibold">mngoc209.github.io</code>, bạn có thể lấy thẳng toàn bộ dữ liệu trên trình duyệt mà <strong>không cần mở cửa sổ đăng nhập Google</strong>.
+              Lấy thẳng dữ liệu <strong>OnTapTuVung</strong> & <strong>OnTapNguPhap</strong> đang lưu trên cùng trình duyệt mà không cần mở cửa sổ đăng nhập Google.
               {(sharedStorageInfo.hasVocabInBrowser || sharedStorageInfo.hasGrammarInBrowser) && (
                 <span className="block font-semibold text-emerald-700 mt-0.5">
                   ✓ Phát hiện có sẵn {sharedStorageInfo.vocabCount} từ vựng & {sharedStorageInfo.grammarCount} mẫu ngữ pháp trong trình duyệt này!
@@ -415,7 +568,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
             type="button"
             disabled={loading}
             onClick={handleInstantBrowserSync}
-            className="px-4 py-2.5 bg-pink-600 hover:bg-pink-700 text-white rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
+            className="px-4 py-2.5 bg-pink-600 hover:bg-pink-700 rounded-xl text-xs font-bold whitespace-nowrap shrink-0 cursor-pointer shadow-xs"
           >
             Đồng bộ 1-Click ngay
           </button>
@@ -430,7 +583,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 href="https://mngoc209.github.io/OnTapTuVung/"
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 text-pink-600 hover:underline font-medium"
+                className="inline-flex items-center gap-1 text-pink-700 hover:underline font-medium"
               >
                 <span>Mở web</span>
                 <ExternalLink className="w-3 h-3" />
@@ -451,7 +604,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 href="https://mngoc209.github.io/OnTapNguPhap/"
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 text-pink-600 hover:underline font-medium"
+                className="inline-flex items-center gap-1 text-pink-700 hover:underline font-medium"
               >
                 <span>Mở web</span>
                 <ExternalLink className="w-3 h-3" />
@@ -466,22 +619,38 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           </div>
         </div>
 
-        {/* Mode Switcher */}
-        <div className="flex items-center gap-1 p-1 bg-pink-50 border border-pink-200/70 rounded-xl">
+        {/* 3-Tab Mode Switcher */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 p-1 bg-pink-50 border border-pink-200/70 rounded-xl">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('devices');
+              setError(null);
+            }}
+            className={`py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer ${
+              activeTab === 'devices'
+                ? 'bg-white text-pink-800 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Smartphone className="w-4 h-4" />
+            <span>1. Đồng bộ giữa các thiết bị</span>
+          </button>
+
           <button
             type="button"
             onClick={() => {
               setActiveTab('backup');
               setError(null);
             }}
-            className={`flex-1 py-2 px-4 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-colors whitespace-nowrap cursor-pointer ${
+            className={`py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer ${
               activeTab === 'backup'
-                ? 'bg-white text-pink-700 shadow-xs'
+                ? 'bg-white text-pink-800 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <Upload className="w-4 h-4" />
-            <span>Cách 1: Nhập File Backup JSON / Dán nhanh</span>
+            <span>2. Nhập File JSON / Dán nhanh</span>
           </button>
 
           <button
@@ -490,14 +659,14 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               setActiveTab('firebase');
               setError(null);
             }}
-            className={`flex-1 py-2 px-4 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-colors whitespace-nowrap cursor-pointer ${
+            className={`py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer ${
               activeTab === 'firebase'
-                ? 'bg-white text-pink-700 shadow-xs'
+                ? 'bg-white text-pink-800 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             <Cloud className="w-4 h-4" />
-            <span>Cách 2: Kết nối Cloud Firebase</span>
+            <span>3. Cloud Firebase gốc</span>
           </button>
         </div>
 
@@ -516,7 +685,169 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           </div>
         )}
 
-        {/* Tab 1: Upload Backup JSON or Quick Paste */}
+        {/* TAB 1: Cross-Device Sync (Máy tính ↔ Điện thoại) */}
+        {activeTab === 'devices' && (
+          <div className="space-y-4">
+            <div className="p-4 rounded-2xl bg-white border border-pink-200 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-pink-100">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <ArrowUpDown className="w-4 h-4 text-pink-700" />
+                    <span>Đồng bộ đám mây 2 chiều (Máy tính ↔ Điện thoại)</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Thiết bị hiện tại: <strong>{currentDevice}</strong>
+                    {lastCloudSyncedAt
+                      ? ` · Đồng bộ gần nhất lúc ${new Date(lastCloudSyncedAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}${lastSyncedDevice ? ` (${lastSyncedDevice})` : ''}`
+                      : ' · Tự động lưu tiến độ Lộ trình, Bug Tracker & Báo cáo 19:00'}
+                  </p>
+                </div>
+                <span
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${
+                    hasFirebaseCloudSession
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                      : 'bg-pink-50 text-pink-800 border border-pink-200'
+                  }`}
+                >
+                  {hasFirebaseCloudSession
+                    ? '🟢 Đã kết nối Cloud Firebase'
+                    : '☁️ Chế độ Phòng Đồng Bộ'}
+                </span>
+              </div>
+
+              {/* Sync Room Key + Push / Pull Buttons */}
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                <div className="md:col-span-5 space-y-1.5">
+                  <label
+                    htmlFor="sync-room-key-input"
+                    className="block text-xs font-semibold text-slate-700"
+                  >
+                    Mã đồng bộ cá nhân (Đặt giống nhau trên 2 máy):
+                  </label>
+                  <input
+                    id="sync-room-key-input"
+                    type="text"
+                    value={syncRoomKey}
+                    onChange={(e) => setSyncRoomKey(e.target.value)}
+                    placeholder="VD: mngoc209"
+                    className="w-full px-3.5 py-2 bg-pink-50/40 border border-pink-200 rounded-xl text-xs font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-pink-400"
+                  />
+                </div>
+
+                <div className="md:col-span-7 grid grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={handlePushCrossDevice}
+                    className="py-2.5 px-3 bg-pink-600 hover:bg-pink-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    {loading ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Upload className="w-3.5 h-3.5" />
+                    )}
+                    <span>Đẩy lên Đám mây (Push)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={handlePullCrossDevice}
+                    className="py-2.5 px-3 bg-white hover:bg-pink-50 text-pink-800 border border-pink-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    {loading ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    )}
+                    <span>Tải về máy này (Pull)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* One-Click Device Pairing / Snapshot Transfer */}
+              <div className="pt-3 border-t border-pink-100 space-y-3">
+                <div className="text-xs font-bold text-slate-800">
+                  Chuyển nhanh sang Điện thoại / Máy tính mới (Không cần đăng nhập lại Google):
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {generatedPairingCode && (
+                    <button
+                      type="button"
+                      onClick={() => handleCopyText('pairing_code', generatedPairingCode)}
+                      className="px-3 py-2 bg-pink-50 hover:bg-pink-100 border border-pink-200 rounded-xl text-xs font-semibold text-pink-900 flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>
+                        {copiedKey === 'pairing_code'
+                          ? '✓ Đã copy Mã Liên Kết Đám Mây!'
+                          : 'Copy Mã Liên Kết Đám Mây (LTN3-...)'}
+                      </span>
+                    </button>
+                  )}
+
+                  {onExportFullSnapshotJson && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleCopyText('full_snapshot', onExportFullSnapshotJson())
+                      }
+                      className="px-3 py-2 bg-pink-50 hover:bg-pink-100 border border-pink-200 rounded-xl text-xs font-semibold text-pink-900 flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>
+                        {copiedKey === 'full_snapshot'
+                          ? '✓ Đã copy Gói Đồng Bộ Toàn Bộ!'
+                          : 'Copy Gói Đồng Bộ Toàn Bộ (Lộ trình + Từ + Ngữ pháp)'}
+                      </span>
+                    </button>
+                  )}
+
+                  {onExportFullSnapshotJson && (
+                    <button
+                      type="button"
+                      onClick={handleDownloadFullWorkspaceFile}
+                      className="px-3 py-2 bg-white hover:bg-pink-50 border border-pink-200 rounded-xl text-xs font-semibold text-slate-700 flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Tải file đồng bộ (.json)</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="space-y-2 pt-1">
+                  <label
+                    htmlFor="pairing-paste-input"
+                    className="block text-[11px] font-medium text-slate-600"
+                  >
+                    Trên thiết bị thứ 2 (Điện thoại / Máy tính khác), dán <strong>Mã Liên Kết (LTN3-...)</strong> hoặc <strong>Gói Đồng Bộ</strong> vào ô dưới đây để đồng bộ ngay:
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="pairing-paste-input"
+                      type="text"
+                      value={pairingCodeInput}
+                      onChange={(e) => setPairingCodeInput(e.target.value)}
+                      placeholder="Dán mã LTN3-... hoặc Gói Đồng Bộ từ thiết bị kia vào đây..."
+                      className="flex-1 px-3.5 py-2 bg-pink-50/40 border border-pink-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-pink-400 font-mono"
+                    />
+                    <button
+                      type="button"
+                      disabled={!pairingCodeInput.trim() || loading}
+                      onClick={handleApplyPairingOrSnapshot}
+                      className="px-4 py-2 bg-pink-600 hover:bg-pink-700 disabled:opacity-50 rounded-xl text-xs font-bold whitespace-nowrap cursor-pointer"
+                    >
+                      Liên kết & Đồng bộ
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: Upload Backup JSON or Quick Paste */}
         {activeTab === 'backup' && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -531,7 +862,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   </p>
                 </div>
 
-                <label className="w-full py-2.5 px-4 bg-pink-600 hover:bg-pink-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer">
+                <label className="w-full py-2.5 px-4 bg-pink-600 hover:bg-pink-700 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer">
                   <Upload className="w-4 h-4" />
                   <span>Chọn file JSON Từ vựng</span>
                   <input
@@ -554,7 +885,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   </p>
                 </div>
 
-                <label className="w-full py-2.5 px-4 bg-pink-600 hover:bg-pink-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer">
+                <label className="w-full py-2.5 px-4 bg-pink-600 hover:bg-pink-700 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer">
                   <Upload className="w-4 h-4" />
                   <span>Chọn file JSON Ngữ pháp</span>
                   <input
@@ -573,7 +904,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowPasteBox((p) => !p)}
-                  className="text-xs font-bold text-pink-700 hover:underline flex items-center gap-1.5 cursor-pointer"
+                  className="text-xs font-bold text-pink-800 hover:underline flex items-center gap-1.5 cursor-pointer"
                 >
                   <ClipboardPaste className="w-3.5 h-3.5" />
                   <span>
@@ -590,14 +921,14 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     rows={3}
                     value={pastedJsonText}
                     onChange={(e) => setPastedJsonText(e.target.value)}
-                    placeholder='Dán nội dung file JSON Backup Từ vựng hoặc Ngữ pháp vào đây...'
+                    placeholder="Dán nội dung file JSON Backup Từ vựng, Ngữ pháp hoặc Gói Đồng Bộ vào đây..."
                     className="w-full p-3 bg-white border border-pink-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-pink-400 font-mono"
                   />
                   <button
                     type="button"
                     disabled={!pastedJsonText.trim() || loading}
                     onClick={handleImportPastedJson}
-                    className="px-4 py-2 bg-pink-600 hover:bg-pink-700 disabled:bg-slate-300 text-white rounded-xl text-xs font-semibold cursor-pointer"
+                    className="px-4 py-2 bg-pink-600 hover:bg-pink-700 disabled:bg-slate-300 rounded-xl text-xs font-bold cursor-pointer"
                   >
                     Nạp dữ liệu JSON vừa dán
                   </button>
@@ -607,16 +938,15 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
           </div>
         )}
 
-        {/* Tab 2: Firebase Cloud Sync */}
+        {/* TAB 3: Firebase Cloud Sync */}
         {activeTab === 'firebase' && (
           <div className="space-y-4">
-            {/* Exact Solution for "The requested action is invalid." */}
             <div className="p-4 rounded-2xl bg-pink-50/70 border border-pink-200 text-xs text-slate-700 space-y-2.5">
-              <div className="font-bold text-pink-800">
-                Vì sao cửa sổ đăng nhập Google báo &ldquo;The requested action is invalid.&rdquo; và cách mở khóa trong 10 giây:
+              <div className="font-bold text-pink-900">
+                Mẹo kết nối Cloud Firebase không cần mở Popup Google:
               </div>
               <p className="text-[11px] text-slate-600 leading-relaxed">
-                Khi mở Popup Google, Firebase chạy trang xác thực tại <code className="text-pink-700 font-semibold">tuvungjlpt.firebaseapp.com</code> và <code className="text-pink-700 font-semibold">nguphapjlpt.firebaseapp.com</code>. Hiện tại API Key trên <strong>Google Cloud Console → APIs &amp; Services → Credentials</strong> của bạn đang bật giới hạn <em>Website restrictions (HTTP Referrers)</em> chỉ cho phép <code className="text-pink-700">mngoc209.github.io/*</code> mà chưa thêm 2 domain của chính Firebase dưới đây:
+                Hệ thống sẽ tự động dùng lại phiên đăng nhập Google có sẵn của <strong>OnTapTuVung</strong> và <strong>OnTapNguPhap</strong> trên trình duyệt của bạn. Nếu cần mở Popup Google mới, hãy đảm bảo API Key trên Google Cloud Console đã thêm 2 domain xác thực dưới đây:
               </p>
               <div className="flex flex-wrap items-center gap-2 pt-0.5">
                 <button
@@ -624,7 +954,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   onClick={() =>
                     handleCopyText('tuvung_ref', 'https://tuvungjlpt.firebaseapp.com/*')
                   }
-                  className="px-2.5 py-1.5 bg-white hover:bg-pink-50 border border-pink-200 rounded-lg text-[11px] font-semibold text-pink-700 flex items-center gap-1.5 cursor-pointer"
+                  className="px-2.5 py-1.5 bg-white hover:bg-pink-50 border border-pink-200 rounded-lg text-[11px] font-semibold text-pink-800 flex items-center gap-1.5 cursor-pointer"
                 >
                   <Copy className="w-3 h-3" />
                   <span>
@@ -639,7 +969,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   onClick={() =>
                     handleCopyText('nguphap_ref', 'https://nguphapjlpt.firebaseapp.com/*')
                   }
-                  className="px-2.5 py-1.5 bg-white hover:bg-pink-50 border border-pink-200 rounded-lg text-[11px] font-semibold text-pink-700 flex items-center gap-1.5 cursor-pointer"
+                  className="px-2.5 py-1.5 bg-white hover:bg-pink-50 border border-pink-200 rounded-lg text-[11px] font-semibold text-pink-800 flex items-center gap-1.5 cursor-pointer"
                 >
                   <Copy className="w-3 h-3" />
                   <span>
@@ -649,9 +979,6 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   </span>
                 </button>
               </div>
-              <p className="text-[11px] text-slate-500">
-                Mẹo: Nếu bạn đã đăng nhập sẵn trên <strong>mngoc209.github.io</strong>, nút bên dưới sẽ tự động kế thừa phiên đăng nhập sẵn có mà không cần mở lại Popup!
-              </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -668,14 +995,14 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   type="button"
                   disabled={loading}
                   onClick={handleGoogleSignInVocab}
-                  className="w-full py-2.5 px-4 bg-pink-600 hover:bg-pink-700 disabled:bg-pink-300 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                  className="w-full py-2.5 px-4 bg-pink-600 hover:bg-pink-700 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
                 >
                   {loading ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
                     <Cloud className="w-4 h-4" />
                   )}
-                  <span>Đăng nhập Google & Tải Từ vựng</span>
+                  <span>Kết nối & Tải Từ vựng Cloud</span>
                 </button>
 
                 <div className="pt-3 border-t border-pink-100 space-y-2">
@@ -719,14 +1046,14 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                   type="button"
                   disabled={loading}
                   onClick={handleGoogleSignInGrammar}
-                  className="w-full py-2.5 px-4 bg-pink-600 hover:bg-pink-700 disabled:bg-pink-300 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                  className="w-full py-2.5 px-4 bg-pink-600 hover:bg-pink-700 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
                 >
                   {loading ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
                     <Cloud className="w-4 h-4" />
                   )}
-                  <span>Đăng nhập Google & Tải Ngữ pháp</span>
+                  <span>Kết nối & Tải Ngữ pháp Cloud</span>
                 </button>
 
                 <div className="pt-3 border-t border-pink-100 space-y-2">
@@ -763,7 +1090,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
         {/* Grammar Source Selection ("Chọn nguồn Ngữ pháp đang ôn · Bỏ nguồn không học") */}
         {grammarSourcesSummary.length > 0 && onToggleGrammarSource && (
           <div className="p-4 rounded-2xl bg-pink-50/50 border border-pink-200/80 space-y-2.5">
-            <div className="text-xs font-bold text-pink-800">
+            <div className="text-xs font-bold text-pink-900">
               Chọn nguồn Ngữ pháp đưa vào lộ trình ({activeGrammarSources.length}/{grammarSourcesSummary.length} nguồn đang bật)
             </div>
             <p className="text-[11px] text-slate-600">
@@ -779,7 +1106,7 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
                     onClick={() => onToggleGrammarSource(src.name)}
                     className={`px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition-colors cursor-pointer ${
                       isSelected
-                        ? 'bg-pink-600 text-white border-pink-600'
+                        ? 'bg-pink-600 border-pink-400'
                         : 'bg-white text-slate-500 border-slate-200 line-through'
                     }`}
                   >
@@ -800,10 +1127,10 @@ export const DataSyncModal: React.FC<DataSyncModalProps> = ({
               type="checkbox"
               checked={autoRegenerate}
               onChange={(e) => setAutoRegenerate(e.target.checked)}
-              className="w-4 h-4 rounded accent-pink-600"
+              className="w-4 h-4 rounded accent-sky-600"
             />
             <span className="flex items-center gap-1.5">
-              <RefreshCw className="w-3.5 h-3.5 text-pink-600" />
+              <RefreshCw className="w-3.5 h-3.5 text-pink-700" />
               Tự động cập nhật lại Lộ trình hôm nay ngay khi nạp dữ liệu mới
             </span>
           </label>

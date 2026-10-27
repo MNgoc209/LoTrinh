@@ -10,9 +10,14 @@ import {
   getFirestore,
   doc,
   getDoc,
+  setDoc,
 } from 'firebase/firestore';
 import { parseVocabBackupJson, parseGrammarBackupJson } from './studyLogic';
-import { ImportedVocabItem, ImportedGrammarItem } from '../types';
+import {
+  ImportedVocabItem,
+  ImportedGrammarItem,
+  CrossDeviceWorkspaceSnapshot,
+} from '../types';
 
 // Runtime char-code decoder for the public Firebase Web API keys of OnTapTuVung and OnTapNguPhap
 const TUVUNG_PUBLIC_WEB_CODES = [
@@ -26,6 +31,22 @@ const NGUPHAP_PUBLIC_WEB_CODES = [
   82, 118, 102, 54, 56, 110, 68, 98, 66, 86, 56, 110, 68, 98, 79, 95, 72, 106,
   97, 103, 81,
 ];
+
+const CLOUD_PAIRING_STORAGE_KEY = 'jlpt_n3_cloud_pairing_tokens_v1';
+
+export interface SavedCloudTokenEntry {
+  uid: string;
+  email?: string | null;
+  refreshToken: string;
+  apiKey: string;
+  projectId: string;
+}
+
+export interface CloudPairingBundle {
+  vocab?: SavedCloudTokenEntry;
+  grammar?: SavedCloudTokenEntry;
+  syncRoomKey?: string;
+}
 
 /**
  * Ensures we always use a valid 39-char Firebase Web API key starting with AIzaSy,
@@ -46,9 +67,11 @@ function resolveFirebaseApiKey(
   return expectedKey;
 }
 
+const viteEnv = (import.meta as any)?.env || {};
+
 export const VOCAB_FIREBASE_CONFIG = {
   apiKey: resolveFirebaseApiKey(
-    import.meta.env.VITE_TUVUNG_FIREBASE_API_KEY,
+    viteEnv.VITE_TUVUNG_FIREBASE_API_KEY,
     TUVUNG_PUBLIC_WEB_CODES
   ),
   authDomain: 'tuvungjlpt.firebaseapp.com',
@@ -60,7 +83,7 @@ export const VOCAB_FIREBASE_CONFIG = {
 
 export const GRAMMAR_FIREBASE_CONFIG = {
   apiKey: resolveFirebaseApiKey(
-    import.meta.env.VITE_NGUPHAP_FIREBASE_API_KEY,
+    viteEnv.VITE_NGUPHAP_FIREBASE_API_KEY,
     NGUPHAP_PUBLIC_WEB_CODES
   ),
   authDomain: 'nguphapjlpt.firebaseapp.com',
@@ -98,73 +121,290 @@ function getOrInitFirestore(app: FirebaseApp): Firestore {
   }
 }
 
+export function getDeviceLabel(): string {
+  if (typeof navigator === 'undefined') return 'Thiết bị Web';
+  const ua = navigator.userAgent || '';
+  if (/iPhone|iPad|iPod/i.test(ua)) return 'iPhone / iPad';
+  if (/Android/i.test(ua)) return 'Điện thoại Android';
+  if (/Macintosh|Mac OS X/i.test(ua)) return 'Máy tính Mac';
+  if (/Windows/i.test(ua)) return 'Máy tính Windows';
+  return 'Trình duyệt Web';
+}
+
+export function loadSavedCloudPairingBundle(): CloudPairingBundle {
+  if (typeof window === 'undefined' || !window.localStorage) return {};
+  try {
+    const raw = window.localStorage.getItem(CLOUD_PAIRING_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
+export function saveCloudPairingBundle(bundle: CloudPairingBundle): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    const current = loadSavedCloudPairingBundle();
+    const merged: CloudPairingBundle = {
+      ...current,
+      ...bundle,
+    };
+    window.localStorage.setItem(CLOUD_PAIRING_STORAGE_KEY, JSON.stringify(merged));
+  } catch {
+    // ignore
+  }
+}
+
 /**
- * On https://mngoc209.github.io, OnTapTuVung and OnTapNguPhap initialize Firebase
- * using the "[DEFAULT]" app name, saving their authenticated Google user under
- * `firebase:authUser:<apiKey>:[DEFAULT]` in IndexedDB (`firebaseLocalStorageDb`).
- * This helper mirrors that session to our named app (`onTapTuVungApp` / `onTapNguPhapApp`)
- * so `getAuth(app)` automatically inherits the signed-in user without needing a popup!
+ * Scans IndexedDB (`firebaseLocalStorageDb`) AND `localStorage` for any existing signed-in
+ * Firebase Auth sessions from OnTapTuVung (`tuvungjlpt`) or OnTapNguPhap (`nguphapjlpt`),
+ * and merges them with any saved Cloud Pairing tokens.
  */
-async function inheritDefaultAuthSessionFromIndexedDb(
-  apiKey: string,
-  targetAppName: string
-): Promise<string | null> {
-  if (typeof window === 'undefined' || !('indexedDB' in window)) return null;
+export async function discoverAllFirebaseSessions(): Promise<CloudPairingBundle> {
+  const bundle: CloudPairingBundle = { ...loadSavedCloudPairingBundle() };
+  if (typeof window === 'undefined') return bundle;
 
-  return new Promise((resolve) => {
-    try {
-      const req = window.indexedDB.open('firebaseLocalStorageDb');
-      req.onerror = () => resolve(null);
-      req.onsuccess = () => {
-        const db = req.result;
-        if (!db.objectStoreNames.contains('firebaseLocalStorage')) {
-          db.close();
-          resolve(null);
-          return;
-        }
-        try {
-          const tx = db.transaction('firebaseLocalStorage', 'readwrite');
-          const store = tx.objectStore('firebaseLocalStorage');
-          const defaultKey = `firebase:authUser:${apiKey}:[DEFAULT]`;
-          const targetKey = `firebase:authUser:${apiKey}:${targetAppName}`;
+  const inspectUserValue = (val: any) => {
+    if (!val || typeof val !== 'object') return;
+    const uid = val.uid;
+    const email = val.email || null;
+    const apiKey = val.apiKey || '';
+    const refreshToken = val.stsTokenManager?.refreshToken || '';
+    if (!uid || !refreshToken) return;
 
-          const getReq = store.get(defaultKey);
-          getReq.onsuccess = () => {
-            const record = getReq.result;
-            if (record && record.value && record.value.uid) {
-              store.put({
-                fbase_key: targetKey,
-                value: {
-                  ...record.value,
-                  appName: targetAppName,
-                },
-              });
-              tx.oncomplete = () => {
-                db.close();
-                resolve(String(record.value.uid));
-              };
-              tx.onerror = () => {
-                db.close();
-                resolve(String(record.value.uid));
-              };
-            } else {
-              db.close();
-              resolve(null);
-            }
-          };
-          getReq.onerror = () => {
-            db.close();
-            resolve(null);
-          };
-        } catch {
-          db.close();
-          resolve(null);
-        }
+    if (apiKey === VOCAB_FIREBASE_CONFIG.apiKey) {
+      bundle.vocab = {
+        uid: String(uid),
+        email,
+        refreshToken: String(refreshToken),
+        apiKey: VOCAB_FIREBASE_CONFIG.apiKey,
+        projectId: VOCAB_FIREBASE_CONFIG.projectId,
       };
-    } catch {
-      resolve(null);
+    } else if (apiKey === GRAMMAR_FIREBASE_CONFIG.apiKey) {
+      bundle.grammar = {
+        uid: String(uid),
+        email,
+        refreshToken: String(refreshToken),
+        apiKey: GRAMMAR_FIREBASE_CONFIG.apiKey,
+        projectId: GRAMMAR_FIREBASE_CONFIG.projectId,
+      };
     }
+  };
+
+  // 1. Check localStorage keys starting with firebase:authUser:
+  try {
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (k && k.startsWith('firebase:authUser:')) {
+        const raw = window.localStorage.getItem(k);
+        if (raw) inspectUserValue(JSON.parse(raw));
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 2. Scan IndexedDB firebaseLocalStorageDb via openCursor
+  if ('indexedDB' in window) {
+    await new Promise<void>((resolve) => {
+      try {
+        const req = window.indexedDB.open('firebaseLocalStorageDb');
+        req.onerror = () => resolve();
+        req.onsuccess = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains('firebaseLocalStorage')) {
+            db.close();
+            resolve();
+            return;
+          }
+          try {
+            const tx = db.transaction('firebaseLocalStorage', 'readwrite');
+            const store = tx.objectStore('firebaseLocalStorage');
+            const cursorReq = store.openCursor();
+            cursorReq.onsuccess = (ev) => {
+              const cursor = (ev.target as IDBRequest<IDBCursorWithValue | null>).result;
+              if (cursor) {
+                const record = cursor.value;
+                const userObj = record?.value || record;
+                inspectUserValue(userObj);
+
+                // Also mirror [DEFAULT] sessions to our named apps
+                if (userObj?.apiKey === VOCAB_FIREBASE_CONFIG.apiKey && userObj?.uid) {
+                  try {
+                    store.put({
+                      fbase_key: `firebase:authUser:${VOCAB_FIREBASE_CONFIG.apiKey}:onTapTuVungApp`,
+                      value: { ...userObj, appName: 'onTapTuVungApp' },
+                    });
+                  } catch {
+                    // ignore
+                  }
+                }
+                if (userObj?.apiKey === GRAMMAR_FIREBASE_CONFIG.apiKey && userObj?.uid) {
+                  try {
+                    store.put({
+                      fbase_key: `firebase:authUser:${GRAMMAR_FIREBASE_CONFIG.apiKey}:onTapNguPhapApp`,
+                      value: { ...userObj, appName: 'onTapNguPhapApp' },
+                    });
+                  } catch {
+                    // ignore
+                  }
+                }
+                cursor.continue();
+              }
+            };
+            tx.oncomplete = () => {
+              db.close();
+              resolve();
+            };
+            tx.onerror = () => {
+              db.close();
+              resolve();
+            };
+          } catch {
+            db.close();
+            resolve();
+          }
+        };
+      } catch {
+        resolve();
+      }
+    });
+  }
+
+  if (bundle.vocab || bundle.grammar) {
+    saveCloudPairingBundle(bundle);
+  }
+  return bundle;
+}
+
+/**
+ * Exchanges a Firebase refreshToken for a fresh 1-hour idToken directly from the current browser window.
+ * Because this request originates from the app window (Referer: mngoc209.github.io or *.run.app),
+ * it succeeds 200 OK without ever opening firebaseapp.com/__/auth/handler!
+ */
+async function exchangeRefreshTokenForIdToken(
+  apiKey: string,
+  refreshToken: string
+): Promise<{ idToken: string; uid: string; refreshToken: string } | null> {
+  try {
+    const res = await fetch(
+      `https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(refreshToken)}`,
+      }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.id_token || !data.user_id) return null;
+    return {
+      idToken: String(data.id_token),
+      uid: String(data.user_id),
+      refreshToken: String(data.refresh_token || refreshToken),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Converts a Firestore REST API Value object into a plain JavaScript value.
+ */
+function fromFirestoreValue(val: any): any {
+  if (!val || typeof val !== 'object') return val;
+  if ('stringValue' in val) return val.stringValue;
+  if ('integerValue' in val) return Number(val.integerValue);
+  if ('doubleValue' in val) return Number(val.doubleValue);
+  if ('booleanValue' in val) return Boolean(val.booleanValue);
+  if ('nullValue' in val) return null;
+  if ('timestampValue' in val) return val.timestampValue;
+  if ('arrayValue' in val) {
+    const values = val.arrayValue?.values;
+    return Array.isArray(values) ? values.map(fromFirestoreValue) : [];
+  }
+  if ('mapValue' in val) {
+    const fields = val.mapValue?.fields || {};
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(fields)) {
+      out[k] = fromFirestoreValue(v);
+    }
+    return out;
+  }
+  return val;
+}
+
+function fromFirestoreDocument(docJson: any): Record<string, any> | null {
+  if (!docJson || !docJson.fields) return null;
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(docJson.fields)) {
+    out[k] = fromFirestoreValue(v);
+  }
+  return out;
+}
+
+/**
+ * Reads a Firestore document via REST API using a fresh Bearer idToken.
+ */
+async function fetchFirestoreDocWithToken(
+  projectId: string,
+  collectionName: string,
+  docId: string,
+  idToken: string
+): Promise<Record<string, any> | null> {
+  const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
+    projectId
+  )}/databases/(default)/documents/${encodeURIComponent(
+    collectionName
+  )}/${encodeURIComponent(docId)}`;
+
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+    },
   });
+  if (!res.ok) return null;
+  const json = await res.json();
+  return fromFirestoreDocument(json);
+}
+
+/**
+ * Patches ONLY the `lotrinhWorkspaceJson` and `lotrinhUpdatedAt` fields on an authenticated
+ * Firestore user document (`users/{uid}` or `jlpt_users/{uid}`) without modifying any existing
+ * vocabulary or grammar fields.
+ */
+async function patchFirestoreWorkspaceFields(
+  projectId: string,
+  collectionName: string,
+  docId: string,
+  idToken: string,
+  workspaceJsonStr: string,
+  updatedAt: number
+): Promise<boolean> {
+  const url =
+    `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
+      projectId
+    )}/databases/(default)/documents/${encodeURIComponent(
+      collectionName
+    )}/${encodeURIComponent(docId)}` +
+    `?updateMask.fieldPaths=lotrinhWorkspaceJson&updateMask.fieldPaths=lotrinhUpdatedAt`;
+
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      fields: {
+        lotrinhWorkspaceJson: { stringValue: workspaceJsonStr },
+        lotrinhUpdatedAt: { integerValue: String(updatedAt) },
+      },
+    }),
+  });
+  return res.ok;
 }
 
 /**
@@ -309,18 +549,18 @@ function formatFirebaseSyncError(err: any, projectLabel: string): string {
     code.includes('invalid-api-key') ||
     msg.includes('API_KEY_HTTP_REFERRER_BLOCKED')
   ) {
-    return `Cửa sổ Google báo "The requested action is invalid" là do API Key của project "${projectLabel}" trên Google Cloud Console đang bật giới hạn Website (HTTP Referrers) chỉ cho phép mngoc209.github.io/* mà thiếu domain xử lý đăng nhập của chính Firebase là "${authDomain}". Cách khắc phục: (1) Nếu bạn đang mở trên mngoc209.github.io/LoTrinh/, hãy bấm nút "Đồng bộ 1-Click từ Trình duyệt" ở ngay phía trên (không cần mở Popup Google); hoặc (2) Vào Google Cloud Console → Credentials → Bấm vào API Key của ${projectLabel} → Mục Website restrictions → Thêm "${authDomain}".`;
+    return `Cửa sổ Google báo "The requested action is invalid" là do API Key của project "${projectLabel}" trên Google Cloud Console đang bật giới hạn Website (HTTP Referrers) chỉ cho phép mngoc209.github.io/* mà thiếu domain xử lý đăng nhập "${authDomain}". Cách khắc phục: (1) Dùng mục "Đồng bộ giữa các thiết bị" (Mã liên kết / Mã phòng đồng bộ) ở Tab bên cạnh; hoặc (2) Bấm "Đồng bộ 1-Click từ Trình duyệt" ở phía trên; hoặc (3) Thêm "${authDomain}" vào Website restrictions của API Key trên Google Cloud Console.`;
   }
 
   if (
     code.includes('permission-denied') ||
     msg.includes('Missing or insufficient permissions')
   ) {
-    return `Firestore của ${projectLabel} bảo mật theo tài khoản Google (request.auth.uid == uid). Nếu cửa sổ Popup Google báo "The requested action is invalid", hãy dùng nút "Đồng bộ 1-Click từ Trình duyệt" (khi mở trên mngoc209.github.io), hoặc dùng Tab 1 (Nhập File Backup JSON / Dán dữ liệu nhanh), hoặc thêm "${authDomain}" vào Website restrictions của API Key trên Google Cloud Console.`;
+    return `Firestore của ${projectLabel} yêu cầu phiên xác thực. Hãy dùng mục "Đồng bộ giữa các thiết bị" (Mã liên kết thiết bị) hoặc "Đồng bộ 1-Click từ Trình duyệt" (khi mở trên mngoc209.github.io), hoặc thêm "${authDomain}" vào Website restrictions của API Key.`;
   }
 
   if (code.includes('popup-closed-by-user')) {
-    return `Bạn đã đóng cửa sổ Popup Google. (Lưu ý: Nếu trong cửa sổ Popup hiện dòng chữ "The requested action is invalid.", nguyên nhân là API Key trên Google Cloud Console của ${projectLabel} đang chặn Referer "${authDomain}". Hãy dùng nút "Đồng bộ 1-Click từ Trình duyệt" hoặc Tab 1 Nhập File Backup JSON để nạp ngay lập tức!).`;
+    return `Bạn đã đóng cửa sổ Popup Google. Nếu trong cửa sổ Popup hiện "The requested action is invalid.", hãy dùng mục "Đồng bộ giữa các thiết bị" (Mã phòng đồng bộ / Mã liên kết) hoặc Tab 1 Nhập File JSON để đồng bộ ngay lập tức!`;
   }
 
   if (code.includes('popup-blocked')) {
@@ -332,15 +572,32 @@ function formatFirebaseSyncError(err: any, projectLabel: string): string {
 
 /**
  * Pulls vocabulary data from tuvungjlpt Firestore collection "jlpt_users/{uid}"
+ * Automatically uses stored refreshToken first (avoiding any popup!), then SDK auth.
  */
 export async function pullVocabFromFirebaseByUid(uid: string): Promise<{
   vocabulary: ImportedVocabItem[];
   reviewHistory: Record<string, (string | number)[]>;
 }> {
-  await inheritDefaultAuthSessionFromIndexedDb(
-    VOCAB_FIREBASE_CONFIG.apiKey,
-    'onTapTuVungApp'
-  );
+  const sessions = await discoverAllFirebaseSessions();
+  if (sessions.vocab?.refreshToken) {
+    const tokenRes = await exchangeRefreshTokenForIdToken(
+      VOCAB_FIREBASE_CONFIG.apiKey,
+      sessions.vocab.refreshToken
+    );
+    if (tokenRes) {
+      const targetUid = uid.trim() || tokenRes.uid;
+      const docData = await fetchFirestoreDocWithToken(
+        VOCAB_FIREBASE_CONFIG.projectId,
+        'jlpt_users',
+        targetUid,
+        tokenRes.idToken
+      );
+      if (docData) {
+        return parseVocabBackupJson(docData);
+      }
+    }
+  }
+
   const app = getOrInitApp('onTapTuVungApp', VOCAB_FIREBASE_CONFIG);
   const auth = getAuth(app);
   await auth.authStateReady();
@@ -358,33 +615,9 @@ export async function pullVocabFromFirebaseByUid(uid: string): Promise<{
     }
     return parseVocabBackupJson(snap.data());
   } catch (err: any) {
-    const code = String(err?.code || '');
-    const msg = String(err?.message || '');
-    if (
-      (code.includes('permission-denied') ||
-        msg.includes('Missing or insufficient permissions')) &&
-      !auth.currentUser
-    ) {
-      // Check if shared browser storage has the data already!
-      const shared = pullFromSharedBrowserStorage();
-      if (shared.vocabResult && shared.vocabResult.vocabulary.length > 0) {
-        return shared.vocabResult;
-      }
-
-      try {
-        const provider = new GoogleAuthProvider();
-        const cred = await signInWithPopup(auth, provider);
-        const targetUid = cleanUid || cred.user.uid;
-        const snapAfterAuth = await getDoc(doc(db, 'jlpt_users', targetUid));
-        if (!snapAfterAuth.exists()) {
-          throw new Error(
-            `Đã xác thực Google (${cred.user.email}) nhưng không tìm thấy dữ liệu cho UID "${targetUid}".`
-          );
-        }
-        return parseVocabBackupJson(snapAfterAuth.data());
-      } catch (popupErr: any) {
-        throw new Error(formatFirebaseSyncError(popupErr, 'tuvungjlpt'));
-      }
+    const shared = pullFromSharedBrowserStorage();
+    if (shared.vocabResult && shared.vocabResult.vocabulary.length > 0) {
+      return shared.vocabResult;
     }
     throw new Error(formatFirebaseSyncError(err, 'tuvungjlpt'));
   }
@@ -392,16 +625,33 @@ export async function pullVocabFromFirebaseByUid(uid: string): Promise<{
 
 /**
  * Pulls grammar data from nguphapjlpt Firestore collection "users/{uid}"
+ * Automatically uses stored refreshToken first (avoiding any popup!), then SDK auth.
  */
 export async function pullGrammarFromFirebaseByUid(uid: string): Promise<{
   grammars: ImportedGrammarItem[];
   reviewHistory: Record<string, (string | number)[]>;
   grammarSources: string[];
 }> {
-  await inheritDefaultAuthSessionFromIndexedDb(
-    GRAMMAR_FIREBASE_CONFIG.apiKey,
-    'onTapNguPhapApp'
-  );
+  const sessions = await discoverAllFirebaseSessions();
+  if (sessions.grammar?.refreshToken) {
+    const tokenRes = await exchangeRefreshTokenForIdToken(
+      GRAMMAR_FIREBASE_CONFIG.apiKey,
+      sessions.grammar.refreshToken
+    );
+    if (tokenRes) {
+      const targetUid = uid.trim() || tokenRes.uid;
+      const docData = await fetchFirestoreDocWithToken(
+        GRAMMAR_FIREBASE_CONFIG.projectId,
+        'users',
+        targetUid,
+        tokenRes.idToken
+      );
+      if (docData) {
+        return parseGrammarBackupJson(docData);
+      }
+    }
+  }
+
   const app = getOrInitApp('onTapNguPhapApp', GRAMMAR_FIREBASE_CONFIG);
   const auth = getAuth(app);
   await auth.authStateReady();
@@ -419,40 +669,17 @@ export async function pullGrammarFromFirebaseByUid(uid: string): Promise<{
     }
     return parseGrammarBackupJson(snap.data());
   } catch (err: any) {
-    const code = String(err?.code || '');
-    const msg = String(err?.message || '');
-    if (
-      (code.includes('permission-denied') ||
-        msg.includes('Missing or insufficient permissions')) &&
-      !auth.currentUser
-    ) {
-      const shared = pullFromSharedBrowserStorage();
-      if (shared.grammarResult && shared.grammarResult.grammars.length > 0) {
-        return shared.grammarResult;
-      }
-
-      try {
-        const provider = new GoogleAuthProvider();
-        const cred = await signInWithPopup(auth, provider);
-        const targetUid = cleanUid || cred.user.uid;
-        const snapAfterAuth = await getDoc(doc(db, 'users', targetUid));
-        if (!snapAfterAuth.exists()) {
-          throw new Error(
-            `Đã xác thực Google (${cred.user.email}) nhưng không tìm thấy dữ liệu cho UID "${targetUid}".`
-          );
-        }
-        return parseGrammarBackupJson(snapAfterAuth.data());
-      } catch (popupErr: any) {
-        throw new Error(formatFirebaseSyncError(popupErr, 'nguphapjlpt'));
-      }
+    const shared = pullFromSharedBrowserStorage();
+    if (shared.grammarResult && shared.grammarResult.grammars.length > 0) {
+      return shared.grammarResult;
     }
     throw new Error(formatFirebaseSyncError(err, 'nguphapjlpt'));
   }
 }
 
 /**
- * Attempts to reuse existing IndexedDB Google session or Shared Browser Storage first,
- * and falls back to Google Sign-In Popup against OnTapTuVung Firebase.
+ * Attempts to reuse existing IndexedDB / Cloud Pairing refresh token FIRST (no popup needed!),
+ * then falls back to Google Sign-In Popup or Shared Browser Storage.
  */
 export async function signInAndPullVocabCloud(): Promise<{
   uid: string;
@@ -460,17 +687,37 @@ export async function signInAndPullVocabCloud(): Promise<{
   vocabulary: ImportedVocabItem[];
   reviewHistory: Record<string, (string | number)[]>;
 }> {
-  try {
-    await inheritDefaultAuthSessionFromIndexedDb(
+  // 1. Try direct REST fetch with discovered IndexedDB / Pairing refreshToken (0 popup!)
+  const sessions = await discoverAllFirebaseSessions();
+  if (sessions.vocab?.refreshToken) {
+    const tokenRes = await exchangeRefreshTokenForIdToken(
       VOCAB_FIREBASE_CONFIG.apiKey,
-      'onTapTuVungApp'
+      sessions.vocab.refreshToken
     );
+    if (tokenRes) {
+      const docData = await fetchFirestoreDocWithToken(
+        VOCAB_FIREBASE_CONFIG.projectId,
+        'jlpt_users',
+        tokenRes.uid,
+        tokenRes.idToken
+      );
+      if (docData) {
+        const result = parseVocabBackupJson(docData);
+        return {
+          uid: tokenRes.uid,
+          email: sessions.vocab.email || 'Đã xác thực Cloud',
+          ...result,
+        };
+      }
+    }
+  }
+
+  try {
     const app = getOrInitApp('onTapTuVungApp', VOCAB_FIREBASE_CONFIG);
     const auth = getAuth(app);
     await auth.authStateReady();
     const db = getOrInitFirestore(app);
 
-    // 1. If already authenticated via inherited IndexedDB session on mngoc209.github.io, pull directly without popup!
     if (auth.currentUser) {
       const snap = await getDoc(doc(db, 'jlpt_users', auth.currentUser.uid));
       if (snap.exists()) {
@@ -483,11 +730,22 @@ export async function signInAndPullVocabCloud(): Promise<{
       }
     }
 
-    // 2. Otherwise trigger Google Sign-In Popup
     const provider = new GoogleAuthProvider();
     const cred = await signInWithPopup(auth, provider);
     const uid = cred.user.uid;
     const email = cred.user.email;
+    const rt = (cred.user as any)?.stsTokenManager?.refreshToken || cred.user.refreshToken;
+    if (rt) {
+      saveCloudPairingBundle({
+        vocab: {
+          uid,
+          email,
+          refreshToken: rt,
+          apiKey: VOCAB_FIREBASE_CONFIG.apiKey,
+          projectId: VOCAB_FIREBASE_CONFIG.projectId,
+        },
+      });
+    }
     const snap = await getDoc(doc(db, 'jlpt_users', uid));
     if (!snap.exists()) {
       throw new Error(
@@ -497,8 +755,6 @@ export async function signInAndPullVocabCloud(): Promise<{
     const result = parseVocabBackupJson(snap.data());
     return { uid, email, ...result };
   } catch (err: any) {
-    // 3. If popup failed due to API_KEY_HTTP_REFERRER_BLOCKED ("The requested action is invalid"),
-    // check if we are on mngoc209.github.io and have the data right in localStorage!
     const shared = pullFromSharedBrowserStorage();
     if (shared.vocabResult && shared.vocabResult.vocabulary.length > 0) {
       return {
@@ -512,8 +768,8 @@ export async function signInAndPullVocabCloud(): Promise<{
 }
 
 /**
- * Attempts to reuse existing IndexedDB Google session or Shared Browser Storage first,
- * and falls back to Google Sign-In Popup against OnTapNguPhap Firebase.
+ * Attempts to reuse existing IndexedDB / Cloud Pairing refresh token FIRST (no popup needed!),
+ * then falls back to Google Sign-In Popup or Shared Browser Storage.
  */
 export async function signInAndPullGrammarCloud(): Promise<{
   uid: string;
@@ -522,17 +778,37 @@ export async function signInAndPullGrammarCloud(): Promise<{
   reviewHistory: Record<string, (string | number)[]>;
   grammarSources: string[];
 }> {
-  try {
-    await inheritDefaultAuthSessionFromIndexedDb(
+  // 1. Try direct REST fetch with discovered IndexedDB / Pairing refreshToken (0 popup!)
+  const sessions = await discoverAllFirebaseSessions();
+  if (sessions.grammar?.refreshToken) {
+    const tokenRes = await exchangeRefreshTokenForIdToken(
       GRAMMAR_FIREBASE_CONFIG.apiKey,
-      'onTapNguPhapApp'
+      sessions.grammar.refreshToken
     );
+    if (tokenRes) {
+      const docData = await fetchFirestoreDocWithToken(
+        GRAMMAR_FIREBASE_CONFIG.projectId,
+        'users',
+        tokenRes.uid,
+        tokenRes.idToken
+      );
+      if (docData) {
+        const result = parseGrammarBackupJson(docData);
+        return {
+          uid: tokenRes.uid,
+          email: sessions.grammar.email || 'Đã xác thực Cloud',
+          ...result,
+        };
+      }
+    }
+  }
+
+  try {
     const app = getOrInitApp('onTapNguPhapApp', GRAMMAR_FIREBASE_CONFIG);
     const auth = getAuth(app);
     await auth.authStateReady();
     const db = getOrInitFirestore(app);
 
-    // 1. If already authenticated via inherited IndexedDB session on mngoc209.github.io, pull directly without popup!
     if (auth.currentUser) {
       const snap = await getDoc(doc(db, 'users', auth.currentUser.uid));
       if (snap.exists()) {
@@ -545,11 +821,22 @@ export async function signInAndPullGrammarCloud(): Promise<{
       }
     }
 
-    // 2. Otherwise trigger Google Sign-In Popup
     const provider = new GoogleAuthProvider();
     const cred = await signInWithPopup(auth, provider);
     const uid = cred.user.uid;
     const email = cred.user.email;
+    const rt = (cred.user as any)?.stsTokenManager?.refreshToken || cred.user.refreshToken;
+    if (rt) {
+      saveCloudPairingBundle({
+        grammar: {
+          uid,
+          email,
+          refreshToken: rt,
+          apiKey: GRAMMAR_FIREBASE_CONFIG.apiKey,
+          projectId: GRAMMAR_FIREBASE_CONFIG.projectId,
+        },
+      });
+    }
     const snap = await getDoc(doc(db, 'users', uid));
     if (!snap.exists()) {
       throw new Error(
@@ -569,4 +856,311 @@ export async function signInAndPullGrammarCloud(): Promise<{
     }
     throw new Error(formatFirebaseSyncError(err, 'nguphapjlpt'));
   }
+}
+
+/**
+ * Generates a portable Cross-Device Pairing Key ("LTN3-...") containing the user's
+ * active Firebase Cloud tokens and/or syncRoomKey so a second device (Phone / Tablet / Laptop)
+ * can link in 1 click without needing a Google OAuth popup.
+ */
+export async function generateDevicePairingCode(
+  syncRoomKey?: string
+): Promise<string | null> {
+  const bundle = await discoverAllFirebaseSessions();
+  if (syncRoomKey?.trim()) {
+    bundle.syncRoomKey = syncRoomKey.trim();
+  }
+  if (!bundle.vocab && !bundle.grammar && !bundle.syncRoomKey) {
+    return null;
+  }
+  const jsonStr = JSON.stringify(bundle);
+  const encoded =
+    typeof window !== 'undefined'
+      ? window.btoa(unescape(encodeURIComponent(jsonStr)))
+      : Buffer.from(jsonStr, 'utf-8').toString('base64');
+  return `LTN3-${encoded}`;
+}
+
+/**
+ * Decodes and saves a Cross-Device Pairing Key ("LTN3-...") on a new device.
+ */
+export function applyDevicePairingCode(codeStr: string): CloudPairingBundle {
+  const trimmed = codeStr.trim();
+  const rawBase64 = trimmed.startsWith('LTN3-') ? trimmed.slice(5) : trimmed;
+  const jsonStr =
+    typeof window !== 'undefined'
+      ? decodeURIComponent(escape(window.atob(rawBase64)))
+      : Buffer.from(rawBase64, 'base64').toString('utf-8');
+  const parsed: CloudPairingBundle = JSON.parse(jsonStr);
+  saveCloudPairingBundle(parsed);
+  return parsed;
+}
+
+/**
+ * Pushes the entire LoTrinh workspace snapshot (roadmap, bugs, studyLog, dailyReports,
+ * profile, selectedGrammarSources, and knowledgeBase) to:
+ * 1) Firebase Firestore (`users/{uid}` on nguphapjlpt & `jlpt_users/{uid}` on tuvungjlpt)
+ * 2) Full-stack server sync endpoint (`/api/sync/workspace`) if a syncRoomKey is set
+ */
+export async function pushWorkspaceToCloud(
+  snapshot: CrossDeviceWorkspaceSnapshot,
+  syncRoomKey?: string
+): Promise<{
+  syncedToFirebase: boolean;
+  syncedToServer: boolean;
+  channels: string[];
+}> {
+  const channels: string[] = [];
+  let syncedToFirebase = false;
+  let syncedToServer = false;
+
+  const sessions = await discoverAllFirebaseSessions();
+  const roomKey = (syncRoomKey || sessions.syncRoomKey || snapshot.profile.cloudSyncKey || '').trim();
+
+  // Lightweight payload for Firestore user doc so it stays fast and well under 1MB
+  const firestoreSnapshot: CrossDeviceWorkspaceSnapshot = {
+    ...snapshot,
+    knowledgeBase: undefined, // Vocab & Grammar are already in their native Firestore collections
+  };
+  const workspaceJsonStr = JSON.stringify(firestoreSnapshot);
+
+  // 1. Push to nguphapjlpt Firestore (`users/{uid}`)
+  if (sessions.grammar?.refreshToken) {
+    const tokenRes = await exchangeRefreshTokenForIdToken(
+      GRAMMAR_FIREBASE_CONFIG.apiKey,
+      sessions.grammar.refreshToken
+    );
+    if (tokenRes) {
+      const ok = await patchFirestoreWorkspaceFields(
+        GRAMMAR_FIREBASE_CONFIG.projectId,
+        'users',
+        tokenRes.uid,
+        tokenRes.idToken,
+        workspaceJsonStr,
+        snapshot.updatedAt
+      );
+      if (ok) {
+        syncedToFirebase = true;
+        channels.push('Firebase Cloud (nguphapjlpt)');
+      }
+    }
+  }
+
+  // 2. Push to tuvungjlpt Firestore (`jlpt_users/{uid}`)
+  if (sessions.vocab?.refreshToken) {
+    const tokenRes = await exchangeRefreshTokenForIdToken(
+      VOCAB_FIREBASE_CONFIG.apiKey,
+      sessions.vocab.refreshToken
+    );
+    if (tokenRes) {
+      const ok = await patchFirestoreWorkspaceFields(
+        VOCAB_FIREBASE_CONFIG.projectId,
+        'jlpt_users',
+        tokenRes.uid,
+        tokenRes.idToken,
+        workspaceJsonStr,
+        snapshot.updatedAt
+      );
+      if (ok) {
+        syncedToFirebase = true;
+        if (!channels.includes('Firebase Cloud (tuvungjlpt)')) {
+          channels.push('Firebase Cloud (tuvungjlpt)');
+        }
+      }
+    }
+  }
+
+  // 3. Also try authenticated Firebase SDK if signed in directly
+  if (!syncedToFirebase) {
+    try {
+      const app = getOrInitApp('onTapNguPhapApp', GRAMMAR_FIREBASE_CONFIG);
+      const auth = getAuth(app);
+      if (auth.currentUser) {
+        const db = getOrInitFirestore(app);
+        await setDoc(
+          doc(db, 'users', auth.currentUser.uid),
+          {
+            lotrinhWorkspaceJson: workspaceJsonStr,
+            lotrinhUpdatedAt: snapshot.updatedAt,
+          },
+          { merge: true }
+        );
+        syncedToFirebase = true;
+        channels.push('Firebase Cloud SDK');
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // 4. Push to Server Sync Room (`/api/sync/workspace`) if roomKey is provided
+  if (roomKey) {
+    try {
+      const res = await fetch('/api/sync/workspace', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          syncKey: roomKey,
+          snapshot,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          syncedToServer = true;
+          channels.push(`Phòng đồng bộ #${roomKey}`);
+        }
+      }
+    } catch {
+      // Ignore on static GitHub Pages
+    }
+  }
+
+  return { syncedToFirebase, syncedToServer, channels };
+}
+
+/**
+ * Pulls the latest Cross-Device Workspace + Vocabulary + Grammar from Firebase Cloud
+ * and/or the Sync Room (`syncRoomKey`).
+ */
+export async function pullWorkspaceFromCloud(syncRoomKey?: string): Promise<{
+  workspace: CrossDeviceWorkspaceSnapshot | null;
+  vocabResult: {
+    uid: string;
+    email: string | null;
+    vocabulary: ImportedVocabItem[];
+    reviewHistory: Record<string, (string | number)[]>;
+  } | null;
+  grammarResult: {
+    uid: string;
+    email: string | null;
+    grammars: ImportedGrammarItem[];
+    reviewHistory: Record<string, (string | number)[]>;
+    grammarSources: string[];
+  } | null;
+  sources: string[];
+}> {
+  let latestWorkspace: CrossDeviceWorkspaceSnapshot | null = null;
+  let vocabResult: {
+    uid: string;
+    email: string | null;
+    vocabulary: ImportedVocabItem[];
+    reviewHistory: Record<string, (string | number)[]>;
+  } | null = null;
+  let grammarResult: {
+    uid: string;
+    email: string | null;
+    grammars: ImportedGrammarItem[];
+    reviewHistory: Record<string, (string | number)[]>;
+    grammarSources: string[];
+  } | null = null;
+  const sources: string[] = [];
+
+  const sessions = await discoverAllFirebaseSessions();
+  const roomKey = (syncRoomKey || sessions.syncRoomKey || '').trim();
+
+  // 1. Pull from nguphapjlpt (`users/{uid}`)
+  if (sessions.grammar?.refreshToken) {
+    const tokenRes = await exchangeRefreshTokenForIdToken(
+      GRAMMAR_FIREBASE_CONFIG.apiKey,
+      sessions.grammar.refreshToken
+    );
+    if (tokenRes) {
+      const docData = await fetchFirestoreDocWithToken(
+        GRAMMAR_FIREBASE_CONFIG.projectId,
+        'users',
+        tokenRes.uid,
+        tokenRes.idToken
+      );
+      if (docData) {
+        const parsedG = parseGrammarBackupJson(docData);
+        if (parsedG.grammars.length > 0) {
+          grammarResult = {
+            uid: tokenRes.uid,
+            email: sessions.grammar.email || null,
+            ...parsedG,
+          };
+          sources.push(`Ngữ pháp Cloud (${parsedG.grammars.length} mẫu)`);
+        }
+        if (typeof docData.lotrinhWorkspaceJson === 'string') {
+          try {
+            const ws: CrossDeviceWorkspaceSnapshot = JSON.parse(
+              docData.lotrinhWorkspaceJson
+            );
+            if (!latestWorkspace || ws.updatedAt > latestWorkspace.updatedAt) {
+              latestWorkspace = ws;
+              sources.push(`Lộ trình Cloud (${ws.deviceLabel || 'Thiết bị khác'})`);
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
+  }
+
+  // 2. Pull from tuvungjlpt (`jlpt_users/{uid}`)
+  if (sessions.vocab?.refreshToken) {
+    const tokenRes = await exchangeRefreshTokenForIdToken(
+      VOCAB_FIREBASE_CONFIG.apiKey,
+      sessions.vocab.refreshToken
+    );
+    if (tokenRes) {
+      const docData = await fetchFirestoreDocWithToken(
+        VOCAB_FIREBASE_CONFIG.projectId,
+        'jlpt_users',
+        tokenRes.uid,
+        tokenRes.idToken
+      );
+      if (docData) {
+        const parsedV = parseVocabBackupJson(docData);
+        if (parsedV.vocabulary.length > 0) {
+          vocabResult = {
+            uid: tokenRes.uid,
+            email: sessions.vocab.email || null,
+            ...parsedV,
+          };
+          sources.push(`Từ vựng Cloud (${parsedV.vocabulary.length} từ)`);
+        }
+        if (typeof docData.lotrinhWorkspaceJson === 'string') {
+          try {
+            const ws: CrossDeviceWorkspaceSnapshot = JSON.parse(
+              docData.lotrinhWorkspaceJson
+            );
+            if (!latestWorkspace || ws.updatedAt > latestWorkspace.updatedAt) {
+              latestWorkspace = ws;
+              if (!sources.some((s) => s.startsWith('Lộ trình Cloud'))) {
+                sources.push(`Lộ trình Cloud (${ws.deviceLabel || 'Thiết bị khác'})`);
+              }
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
+  }
+
+  // 3. Pull from Server Sync Room (`/api/sync/workspace?syncKey=...`) if roomKey is provided
+  if (roomKey) {
+    try {
+      const res = await fetch(
+        `/api/sync/workspace?syncKey=${encodeURIComponent(roomKey)}`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.snapshot) {
+          const serverWs: CrossDeviceWorkspaceSnapshot = data.snapshot;
+          if (!latestWorkspace || serverWs.updatedAt > latestWorkspace.updatedAt) {
+            latestWorkspace = serverWs;
+            sources.push(`Phòng đồng bộ #${roomKey}`);
+          }
+        }
+      }
+    } catch {
+      // Ignore on static GitHub Pages
+    }
+  }
+
+  return { workspace: latestWorkspace, vocabResult, grammarResult, sources };
 }

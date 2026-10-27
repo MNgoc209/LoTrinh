@@ -47,7 +47,13 @@ import {
   generateClientTargetedQuestions,
   buildStructuredDailyTasks,
 } from './utils/jlptMondaiTaxonomy';
-import { pullFromSharedBrowserStorage } from './utils/firebaseExternalSync';
+import {
+  pullFromSharedBrowserStorage,
+  pushWorkspaceToCloud,
+  pullWorkspaceFromCloud,
+  getDeviceLabel,
+  saveCloudPairingBundle,
+} from './utils/firebaseExternalSync';
 import {
   DailyRoadmap,
   UserProfile,
@@ -62,6 +68,7 @@ import {
   DailyStudyLog,
   DailyProgressReport,
   JLPTCategory,
+  CrossDeviceWorkspaceSnapshot,
 } from './types';
 
 export default function App() {
@@ -94,6 +101,7 @@ export default function App() {
   const [isEveningReportOpen, setIsEveningReportOpen] = useState(false);
   const [activeReport, setActiveReport] = useState<DailyProgressReport | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const isPullingCloudRef = React.useRef(false);
 
   useEffect(() => {
     saveUserProfile(profile);
@@ -102,7 +110,7 @@ export default function App() {
     }
   }, [profile]);
 
-  // Automatically sync from shared browser origin (mngoc209.github.io) if KB is currently empty
+  // Automatically sync from shared browser origin (mngoc209.github.io) AND Cloud Firebase on startup
   useEffect(() => {
     if (knowledgeBase.vocabulary.length === 0 && knowledgeBase.grammars.length === 0) {
       const { vocabResult, grammarResult } = pullFromSharedBrowserStorage();
@@ -152,6 +160,67 @@ export default function App() {
         }
       }
     }
+
+    // Also silently check Firebase Cloud / Sync Room for newer cross-device workspace state
+    pullWorkspaceFromCloud(profile.cloudSyncKey)
+      .then(({ workspace, vocabResult, grammarResult }) => {
+        if (!workspace && !vocabResult && !grammarResult) return;
+        isPullingCloudRef.current = true;
+        if (vocabResult || grammarResult) {
+          setKnowledgeBase((prevKB) => ({
+            ...prevKB,
+            ...(vocabResult
+              ? {
+                  vocabulary: vocabResult.vocabulary,
+                  vocabReviewHistory: vocabResult.reviewHistory,
+                  lastSyncedVocabAt: Date.now(),
+                  syncSourceVocab: `Cloud Tự Động (${vocabResult.vocabulary.length} từ)`,
+                }
+              : {}),
+            ...(grammarResult
+              ? {
+                  grammars: grammarResult.grammars,
+                  grammarReviewHistory: grammarResult.reviewHistory,
+                  grammarSources: grammarResult.grammarSources,
+                  selectedGrammarSources:
+                    workspace?.selectedGrammarSources ||
+                    prevKB.selectedGrammarSources ||
+                    grammarResult.grammarSources,
+                  lastSyncedGrammarAt: Date.now(),
+                  syncSourceGrammar: `Cloud Tự Động (${grammarResult.grammars.length} mẫu · ${grammarResult.grammarSources.length} nguồn)`,
+                }
+              : {}),
+          }));
+        }
+
+        if (
+          workspace &&
+          workspace.updatedAt > (profile.lastCloudSyncedAt || 0)
+        ) {
+          if (workspace.roadmap?.tasks?.length > 0) setRoadmap(workspace.roadmap);
+          if (Array.isArray(workspace.bugs)) setBugs(workspace.bugs);
+          if (workspace.studyLog) setStudyLog(workspace.studyLog);
+          if (Array.isArray(workspace.dailyReports)) setDailyReports(workspace.dailyReports);
+          if (workspace.knowledgeBase) {
+            setKnowledgeBase((prev) => ({
+              ...prev,
+              ...workspace.knowledgeBase,
+            }));
+          }
+          setProfile((prev) => ({
+            ...prev,
+            ...workspace.profile,
+            lastCloudSyncedAt: workspace.updatedAt,
+            lastSyncedDevice: workspace.deviceLabel,
+          }));
+        }
+        setTimeout(() => {
+          isPullingCloudRef.current = false;
+        }, 600);
+      })
+      .catch(() => {
+        // Ignore offline errors on startup
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -174,6 +243,44 @@ export default function App() {
   useEffect(() => {
     saveDailyReports(dailyReports);
   }, [dailyReports]);
+
+  // Automatic debounced background push to Cloud when study progress changes
+  useEffect(() => {
+    if (isPullingCloudRef.current) return;
+    if (
+      knowledgeBase.vocabulary.length === 0 &&
+      knowledgeBase.grammars.length === 0 &&
+      roadmap.tasks.length === 0
+    ) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      const now = Date.now();
+      const snapshot: CrossDeviceWorkspaceSnapshot = {
+        version: 1,
+        updatedAt: now,
+        deviceLabel: getDeviceLabel(),
+        profile: {
+          ...profile,
+          lastCloudSyncedAt: now,
+          lastSyncedDevice: getDeviceLabel(),
+        },
+        roadmap,
+        bugs,
+        studyLog,
+        dailyReports,
+        selectedGrammarSources: knowledgeBase.selectedGrammarSources,
+        knowledgeBase,
+      };
+      pushWorkspaceToCloud(snapshot, profile.cloudSyncKey).catch(() => {
+        // Ignore background push errors
+      });
+    }, 2000);
+
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roadmap, bugs, studyLog, dailyReports, knowledgeBase.selectedGrammarSources]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -874,8 +981,183 @@ export default function App() {
     }));
     showToast(
       nextTheme === 'sky'
-        ? 'Đã chuyển sang tông màu Xanh biển nhạt dịu mắt.'
+        ? 'Đã chuyển sang tông màu Xanh dịu (#BEDEFF).'
         : 'Đã chuyển sang tông màu Hồng phấn nhạt dịu mắt.'
+    );
+  };
+
+  const handlePushWorkspaceToCloud = async (customSyncKey?: string): Promise<string> => {
+    const now = Date.now();
+    const deviceLabel = getDeviceLabel();
+    const roomKey = (customSyncKey ?? profile.cloudSyncKey ?? 'mngoc209').trim();
+    saveCloudPairingBundle({ syncRoomKey: roomKey });
+
+    const nextProfile: UserProfile = {
+      ...profile,
+      cloudSyncKey: roomKey,
+      lastCloudSyncedAt: now,
+      lastSyncedDevice: deviceLabel,
+    };
+    setProfile(nextProfile);
+
+    const snapshot: CrossDeviceWorkspaceSnapshot = {
+      version: 1,
+      updatedAt: now,
+      deviceLabel,
+      profile: nextProfile,
+      roadmap,
+      bugs,
+      studyLog,
+      dailyReports,
+      selectedGrammarSources: knowledgeBase.selectedGrammarSources,
+      knowledgeBase,
+    };
+
+    const res = await pushWorkspaceToCloud(snapshot, roomKey);
+    if (res.channels.length > 0) {
+      return `Đã đẩy toàn bộ tiến độ (${deviceLabel}) lên: ${res.channels.join(' + ')}!`;
+    }
+    return `Đã lưu trạng thái đồng bộ của ${deviceLabel}. Bạn cũng có thể bấm "Copy Gói Đồng Bộ Toàn Bộ" bên dưới để gửi sang thiết bị thứ 2!`;
+  };
+
+  const handlePullWorkspaceFromCloud = async (customSyncKey?: string): Promise<string> => {
+    const roomKey = (customSyncKey ?? profile.cloudSyncKey ?? 'mngoc209').trim();
+    saveCloudPairingBundle({ syncRoomKey: roomKey });
+
+    const { workspace, vocabResult, grammarResult, sources } =
+      await pullWorkspaceFromCloud(roomKey);
+
+    if (!workspace && !vocabResult && !grammarResult) {
+      throw new Error(
+        `Chưa tìm thấy dữ liệu đồng bộ cho mã "${roomKey}". Hãy bấm "Đẩy lên Đám mây (Push)" trên thiết bị đã có dữ liệu trước, hoặc dùng nút "Copy Gói Đồng Bộ Toàn Bộ" bên dưới!`
+      );
+    }
+
+    isPullingCloudRef.current = true;
+    let nextKB: KnowledgeBaseData = { ...knowledgeBase };
+
+    if (vocabResult && vocabResult.vocabulary.length > 0) {
+      nextKB = {
+        ...nextKB,
+        vocabulary: vocabResult.vocabulary,
+        vocabReviewHistory: vocabResult.reviewHistory,
+        lastSyncedVocabAt: Date.now(),
+        syncSourceVocab: `Cloud Liên Thiết Bị (${vocabResult.vocabulary.length} từ)`,
+      };
+    }
+
+    if (grammarResult && grammarResult.grammars.length > 0) {
+      nextKB = {
+        ...nextKB,
+        grammars: grammarResult.grammars,
+        grammarReviewHistory: grammarResult.reviewHistory,
+        grammarSources: grammarResult.grammarSources,
+        selectedGrammarSources:
+          workspace?.selectedGrammarSources ||
+          nextKB.selectedGrammarSources ||
+          grammarResult.grammarSources,
+        lastSyncedGrammarAt: Date.now(),
+        syncSourceGrammar: `Cloud Liên Thiết Bị (${grammarResult.grammars.length} mẫu · ${grammarResult.grammarSources.length} nguồn)`,
+      };
+    }
+
+    if (workspace?.knowledgeBase) {
+      if (
+        workspace.knowledgeBase.vocabulary?.length &&
+        nextKB.vocabulary.length === 0
+      ) {
+        nextKB.vocabulary = workspace.knowledgeBase.vocabulary;
+        nextKB.vocabReviewHistory = workspace.knowledgeBase.vocabReviewHistory || {};
+        nextKB.syncSourceVocab =
+          workspace.knowledgeBase.syncSourceVocab ||
+          `Đồng bộ từ ${workspace.deviceLabel}`;
+      }
+      if (
+        workspace.knowledgeBase.grammars?.length &&
+        nextKB.grammars.length === 0
+      ) {
+        nextKB.grammars = workspace.knowledgeBase.grammars;
+        nextKB.grammarReviewHistory =
+          workspace.knowledgeBase.grammarReviewHistory || {};
+        nextKB.grammarSources = workspace.knowledgeBase.grammarSources;
+        nextKB.selectedGrammarSources =
+          workspace.selectedGrammarSources ||
+          workspace.knowledgeBase.selectedGrammarSources;
+        nextKB.syncSourceGrammar =
+          workspace.knowledgeBase.syncSourceGrammar ||
+          `Đồng bộ từ ${workspace.deviceLabel}`;
+      }
+    }
+
+    setKnowledgeBase(nextKB);
+
+    if (workspace) {
+      if (workspace.roadmap) setRoadmap(workspace.roadmap);
+      if (Array.isArray(workspace.bugs)) setBugs(workspace.bugs);
+      if (workspace.studyLog) setStudyLog(workspace.studyLog);
+      if (Array.isArray(workspace.dailyReports)) setDailyReports(workspace.dailyReports);
+      setProfile((prev) => ({
+        ...prev,
+        ...workspace.profile,
+        cloudSyncKey: roomKey,
+        lastCloudSyncedAt: workspace.updatedAt || Date.now(),
+        lastSyncedDevice: workspace.deviceLabel,
+      }));
+    } else {
+      // Regenerate roadmap from pulled Vocab & Grammar if no workspace snapshot existed yet
+      await handleGenerateRoadmapWithKB(profile.examDate, profile.confidence, nextKB);
+    }
+
+    setTimeout(() => {
+      isPullingCloudRef.current = false;
+    }, 600);
+
+    return `Đã đồng bộ thành công về thiết bị này từ: ${sources.join(' · ')}!`;
+  };
+
+  const handleExportFullSnapshotJson = (): string => {
+    const now = Date.now();
+    const snapshot: CrossDeviceWorkspaceSnapshot = {
+      version: 1,
+      updatedAt: now,
+      deviceLabel: getDeviceLabel(),
+      profile: {
+        ...profile,
+        lastCloudSyncedAt: now,
+        lastSyncedDevice: getDeviceLabel(),
+      },
+      roadmap,
+      bugs,
+      studyLog,
+      dailyReports,
+      selectedGrammarSources: knowledgeBase.selectedGrammarSources,
+      knowledgeBase,
+    };
+    return JSON.stringify(snapshot);
+  };
+
+  const handleImportFullSnapshotJson = (rawJson: string) => {
+    const parsed: CrossDeviceWorkspaceSnapshot = JSON.parse(rawJson);
+    isPullingCloudRef.current = true;
+    if (parsed.knowledgeBase) {
+      setKnowledgeBase(parsed.knowledgeBase);
+    }
+    if (parsed.roadmap) setRoadmap(parsed.roadmap);
+    if (Array.isArray(parsed.bugs)) setBugs(parsed.bugs);
+    if (parsed.studyLog) setStudyLog(parsed.studyLog);
+    if (Array.isArray(parsed.dailyReports)) setDailyReports(parsed.dailyReports);
+    if (parsed.profile) {
+      setProfile({
+        ...parsed.profile,
+        lastCloudSyncedAt: Date.now(),
+        lastSyncedDevice: parsed.deviceLabel || 'Thiết bị khác',
+      });
+    }
+    setTimeout(() => {
+      isPullingCloudRef.current = false;
+    }, 600);
+    showToast(
+      `Đã đồng bộ toàn bộ tiến độ từ "${parsed.deviceLabel || 'Thiết bị khác'}" sang máy này!`
     );
   };
 
@@ -985,7 +1267,14 @@ export default function App() {
         knowledgeBase={knowledgeBase}
         vocabUid={profile.vocabFirebaseUid}
         grammarUid={profile.grammarFirebaseUid}
+        cloudSyncKey={profile.cloudSyncKey}
+        lastCloudSyncedAt={profile.lastCloudSyncedAt}
+        lastSyncedDevice={profile.lastSyncedDevice}
         onUpdateKnowledgeBase={handleUpdateKnowledgeBase}
+        onPushWorkspaceToCloud={handlePushWorkspaceToCloud}
+        onPullWorkspaceFromCloud={handlePullWorkspaceFromCloud}
+        onExportFullSnapshotJson={handleExportFullSnapshotJson}
+        onImportFullSnapshotJson={handleImportFullSnapshotJson}
         onToggleGrammarSource={handleToggleGrammarSource}
         onClearAllData={handleClearAllData}
       />

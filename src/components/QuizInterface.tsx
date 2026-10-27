@@ -379,14 +379,22 @@ export const QuizInterface: React.FC<QuizInterfaceProps> = ({
           selectedAnswer: currentQ.options[selectedOption],
           correctAnswer: currentQ.options[currentQ.correctAnswerIndex],
           category: `${currentQ.category} - ${currentQ.subCategory}`,
+          question: currentQ,
+          selectedOptionIndex: selectedOption,
         }),
       });
-      const data = await res.json();
-      if (data.success && data.explanation) {
-        setAiExplanation(data.explanation);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.explanation) {
+          setAiExplanation(data.explanation);
+          return;
+        }
       }
-    } catch (err) {
-      console.error('Error fetching AI explanation', err);
+      // Fallback for static GitHub Pages (mngoc209.github.io/LoTrinh) or offline mode
+      setAiExplanation(generateDeepDiveAnalysis(currentQ, selectedOption));
+    } catch {
+      // Static GitHub Pages or network fallback
+      setAiExplanation(generateDeepDiveAnalysis(currentQ, selectedOption));
     } finally {
       setLoadingAiExplain(false);
     }

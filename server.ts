@@ -695,40 +695,146 @@ YÊU CẦU KỸ THUẬT:
   }
 });
 
-// 4. Explain Deep-Dive API
+// 4. Explain Deep-Dive API (with rich question-specific fallback)
 app.post('/api/explain', async (req, res) => {
-  try {
-    const { questionText, selectedAnswer, correctAnswer, category } = req.body;
+  const {
+    questionText = '',
+    selectedAnswer = '',
+    correctAnswer = '',
+    category = '',
+    question,
+    selectedOptionIndex = 0,
+  } = req.body || {};
 
+  const fallbackQuestionObj = question || {
+    category: 'grammar',
+    subCategory: category,
+    questionText,
+    options: [selectedAnswer, correctAnswer].filter(Boolean),
+    correctAnswerIndex: 1,
+    explanation: '',
+    usedTargets: [],
+  };
+
+  try {
     if (!ai) {
       return res.json({
         success: true,
-        explanation:
-          'Mẹo phân tích sâu: Hãy chú ý đối chiếu cấu trúc kết nối (trợ từ, thể động từ) trước và sau chỗ trống, đồng thời kiểm tra sắc thái câu (phàn nàn, cảm kích, hay giả định).',
+        explanation: generateDeepDiveAnalysis(
+          fallbackQuestionObj,
+          typeof selectedOptionIndex === 'number' ? selectedOptionIndex : 0
+        ),
       });
     }
+
+    const allOptionsText = Array.isArray(question?.options)
+      ? question.options
+          .map((opt: string, idx: number) => `${idx + 1}. ${opt}`)
+          .join('\n')
+      : '';
+
+    const targetsText = Array.isArray(question?.usedTargets)
+      ? question.usedTargets
+          .map(
+            (t: any) =>
+              `- ${t.title} (${t.readingOrStructure}): ${t.meaning} [Lv${t.level}]`
+          )
+          .join('\n')
+      : '';
 
     const response = await ai.models.generateContent({
       model: 'gemini-3.8-flash',
       contents: `
-Hãy phân tích chi tiết câu trắc nghiệm JLPT N3 sau đây cho học viên:
-Câu hỏi: ${questionText}
-Học viên đã chọn nhầm: ${selectedAnswer}
-Đáp án chính xác là: ${correctAnswer}
-Phân loại: ${category}
-
-Yêu cầu giảng giải bằng tiếng Việt:
-1. Vì sao học viên hay nhầm lẫn với đáp án đã chọn (bẫy tư duy / sắc thái khác biệt).
-2. Bản chất cấu trúc ngữ pháp / từ vựng của đáp án đúng, cho thêm 2 ví dụ câu tương tự trong đề thi JLPT N3 thực tế.
-3. Mẹo nhớ nhanh để không bao giờ tái phạm lỗi này.
+Hãy phân tích chuyên sâu câu trắc nghiệm JLPT N3 sau đây cho học viên:
+- Dạng bài: ${category}
+- Câu hỏi: ${questionText}
+${question?.passage ? `- Đoạn văn: ${question.passage}\n` : ''}${
+        question?.listeningScript ? `- Kịch bản nghe: ${question.listeningScript}\n` : ''
+      }${allOptionsText ? `- 4 phương án:\n${allOptionsText}\n` : ''}- Học viên đã chọn: ${selectedAnswer}
+- Đáp án chính xác là: ${correctAnswer}
+${targetsText ? `- Kiến thức gốc từ kho học của học viên:\n${targetsText}\n` : ''}
+Yêu cầu giảng giải rõ ràng, súc tích bằng tiếng Việt:
+1. Phân tích lựa chọn của học viên so với đáp án đúng (chỉ rõ bẫy tư duy / khác biệt ngữ pháp hoặc từ vựng).
+2. Giải thích ngắn gọn từng phương án 1, 2, 3, 4.
+3. Bản chất cấu trúc ngữ pháp / từ vựng của đáp án đúng, kèm 2 câu ví dụ tương tự trong đề thi JLPT N3 và mẹo nhận diện nhanh trong 5 giây.
 `,
     });
 
-    res.json({ success: true, explanation: response.text });
+    res.json({
+      success: true,
+      explanation:
+        response.text ||
+        generateDeepDiveAnalysis(
+          fallbackQuestionObj,
+          typeof selectedOptionIndex === 'number' ? selectedOptionIndex : 0
+        ),
+    });
   } catch (error: any) {
-    console.error('Error generating explanation:', error);
-    res.status(500).json({ success: false, error: error.message });
+    console.warn('Gemini /api/explain fallback to structured analyzer:', error?.message);
+    res.json({
+      success: true,
+      explanation: generateDeepDiveAnalysis(
+        fallbackQuestionObj,
+        typeof selectedOptionIndex === 'number' ? selectedOptionIndex : 0
+      ),
+    });
   }
+});
+
+// 5. Cross-Device Workspace Sync Store (/api/sync/workspace)
+const SYNC_STORE_FILE = path.resolve(__dirname, '.aistudio_sync_store.json');
+const memorySyncStore = new Map<string, any>();
+
+function readDiskSyncStore(): Record<string, any> {
+  try {
+    if (fs.existsSync(SYNC_STORE_FILE)) {
+      return JSON.parse(fs.readFileSync(SYNC_STORE_FILE, 'utf-8'));
+    }
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
+function writeDiskSyncStore(storeObj: Record<string, any>): void {
+  try {
+    fs.writeFileSync(SYNC_STORE_FILE, JSON.stringify(storeObj), 'utf-8');
+  } catch {
+    // ignore
+  }
+}
+
+app.get('/api/sync/workspace', (req, res) => {
+  const syncKey = String(req.query.syncKey || '')
+    .trim()
+    .toLowerCase();
+  if (!syncKey) {
+    return res.status(400).json({ success: false, error: 'Thiếu mã phòng đồng bộ (syncKey).' });
+  }
+  const diskData = readDiskSyncStore();
+  const snapshot = memorySyncStore.get(syncKey) || diskData[syncKey] || null;
+  return res.json({
+    success: Boolean(snapshot),
+    snapshot,
+  });
+});
+
+app.post('/api/sync/workspace', (req, res) => {
+  const syncKey = String(req.body?.syncKey || '')
+    .trim()
+    .toLowerCase();
+  const snapshot = req.body?.snapshot;
+  if (!syncKey || !snapshot) {
+    return res.status(400).json({ success: false, error: 'Thiếu mã phòng đồng bộ hoặc dữ liệu.' });
+  }
+  memorySyncStore.set(syncKey, snapshot);
+  const diskData = readDiskSyncStore();
+  diskData[syncKey] = snapshot;
+  writeDiskSyncStore(diskData);
+  return res.json({
+    success: true,
+    updatedAt: snapshot.updatedAt || Date.now(),
+  });
 });
 
 async function setupServer() {

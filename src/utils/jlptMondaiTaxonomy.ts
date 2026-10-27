@@ -1743,3 +1743,121 @@ export function buildStructuredDailyTasks(params: {
 
   return tasks;
 }
+
+/**
+ * Generates an in-depth, structured JLPT N3 AI analysis for a specific question and user choice.
+ * Used both as an instant client-side analyzer on static GitHub Pages (mngoc209.github.io)
+ * and as a structured fallback on the Express server when Gemini API is unavailable.
+ */
+export function generateDeepDiveAnalysis(
+  question: Pick<
+    QuizQuestion,
+    | 'category'
+    | 'subCategory'
+    | 'questionText'
+    | 'options'
+    | 'correctAnswerIndex'
+    | 'explanation'
+    | 'passage'
+    | 'listeningScript'
+    | 'usedTargets'
+  >,
+  selectedOptionIndex: number
+): string {
+  const options = Array.isArray(question.options) ? question.options : [];
+  const correctIdx =
+    typeof question.correctAnswerIndex === 'number' ? question.correctAnswerIndex : 0;
+  const userIdx =
+    typeof selectedOptionIndex === 'number' && selectedOptionIndex >= 0
+      ? selectedOptionIndex
+      : correctIdx;
+
+  const selectedText = options[userIdx] ?? '';
+  const correctText = options[correctIdx] ?? '';
+  const isCorrect = userIdx === correctIdx;
+  const subCat = question.subCategory || question.category || 'JLPT N3';
+  const isStarMondai =
+    subCat.includes('Mondai 2') &&
+    (subCat.includes('★') ||
+      subCat.includes('Dấu sao') ||
+      question.questionText.includes('★'));
+
+  const sections: string[] = [];
+
+  // 1. Direct Diagnosis of User's Choice vs. Correct Answer
+  if (isCorrect) {
+    sections.push(
+      `1. ĐÁNH GIÁ LỰA CHỌN CỦA BẠN (CHÍNH XÁC ✓)\n` +
+        `• Bạn đã chọn phương án [${userIdx + 1}] 「${selectedText}」 — hoàn toàn trùng khớp với đáp án chuẩn của dạng bài ${subCat}.\n` +
+        (isStarMondai
+          ? `• Lý do ăn điểm dấu ★: Bạn đã xác định đúng cụm bản lề điền vào vị trí ngôi sao ★ (vị trí thứ 3 trong 4 chỗ trống ＿＿＿ ＿＿＿ ★ ＿＿＿), giữ đúng trật tự bổ nghĩa và cấu trúc kết nối câu tiếng Nhật.`
+          : `• Lý do ăn điểm: Bạn đã bắt đúng dấu hiệu ngữ cảnh và quy tắc kết nối xung quanh vị trí cần điền mà không bị đánh lừa bởi 3 phương án nhiễu.`)
+    );
+  } else {
+    let trapReason =
+      `Phương án [${userIdx + 1}] 「${selectedText}」 là phương án nhiễu thường gặp. Khi đặt vào ngữ cảnh câu gốc, phương án này gây lệch mạch logic hoặc sai quy tắc kết hợp từ/trợ từ so với đáp án đúng [${correctIdx + 1}] 「${correctText}」.`;
+
+    if (isStarMondai) {
+      trapReason =
+        `Ở dạng Ngữ pháp Mondai 2 (Sắp xếp dấu sao ★), mảnh ghép [${userIdx + 1}] 「${selectedText}」 thực chất cũng nằm trong câu hoàn chỉnh nhưng thuộc về vị trí chỗ trống khác (số 1, 2 hoặc 4), KHÔNG phải mảnh ghép rơi vào đúng vị trí dấu ★ (chỗ trống thứ 3). Mảnh rơi đúng vào vị trí ★ phải là [${correctIdx + 1}] 「${correctText}」.`;
+    } else if (subCat.includes('Mondai 1') && question.category === 'vocabulary') {
+      trapReason =
+        `Ở dạng Đọc Hán tự (Mondai 1), phương án [${userIdx + 1}] 「${selectedText}」 đánh bẫy vào trường âm (う/い), âm ngắt (っ) hoặc âm đục (tenten). Cách đọc chuẩn xác của chữ Hán trong câu phải là [${correctIdx + 1}] 「${correctText}」.`;
+    } else if (subCat.includes('Mondai 2') && question.category === 'vocabulary') {
+      trapReason =
+        `Ở dạng Nhận diện chữ Hán (Mondai 2), phương án [${userIdx + 1}] 「${selectedText}」 sử dụng chữ Hán có bộ thủ hoặc âm Hán Việt gần giống để gây nhầm lẫn thị giác. Cách viết Kanji chuẩn là [${correctIdx + 1}] 「${correctText}」.`;
+    } else if (subCat.includes('Mondai 5') && question.category === 'vocabulary') {
+      trapReason =
+        `Ở dạng Cách dùng từ (用法 - Mondai 5), câu [${userIdx + 1}] dùng từ mục tiêu trong ngữ cảnh dịch sang tiếng Việt nghe có vẻ hợp lý nhưng lại sai kết hợp từ (collocation) tự nhiên của người Nhật. Chỉ có câu [${correctIdx + 1}] dùng đúng ngữ cảnh chuẩn.`;
+    }
+
+    sections.push(
+      `1. PHÂN TÍCH BẪY TƯ DUY (VÌ SAO DỄ NHẦM LẪN?)\n` +
+        `• Bạn đã chọn: Phương án [${userIdx + 1}] 「${selectedText}」\n` +
+        `• Đáp án đúng: Phương án [${correctIdx + 1}] 「${correctText}」\n` +
+        `• Bẫy đề thi: ${trapReason}`
+    );
+  }
+
+  // 2. Option-by-option breakdown
+  if (options.length > 0) {
+    const optLines = options.map((opt, idx) => {
+      if (idx === correctIdx) {
+        return `  • Phương án ${idx + 1}: 「${opt}」 → ✓ ĐÁP ÁN ĐÚNG (Khớp hoàn toàn về cấu trúc kết nối & sắc thái ngữ cảnh).`;
+      }
+      if (idx === userIdx && !isCorrect) {
+        return `  • Phương án ${idx + 1}: 「${opt}」 → ✗ BẠN ĐÃ CHỌN (Phương án bẫy: không khớp vị trí/ngữ cảnh chính của câu hỏi).`;
+      }
+      return `  • Phương án ${idx + 1}: 「${opt}」 → Phương án gây nhiễu (Loại vì lệch nghĩa hoặc sai vị trí lắp ghép trong câu).`;
+    });
+    sections.push(
+      `2. GIẢI PHẪU 4 PHƯƠNG ÁN LỰA CHỌN (1・2・3・4)\n` + optLines.join('\n')
+    );
+  }
+
+  // 3. Deep Dive into User's Synced Targets (from OnTapTuVung & OnTapNguPhap)
+  if (question.usedTargets && question.usedTargets.length > 0) {
+    const targetLines = question.usedTargets.map((t) => {
+      const tag = t.type === 'grammar' ? 'Cấu trúc Ngữ pháp' : 'Từ vựng trọng tâm';
+      const notePart = t.note ? `\n    ↳ Ghi chú / Ví dụ gốc: ${t.note}` : '';
+      return (
+        `  • [${tag} · Lv${t.level}] ${t.title} (${t.readingOrStructure}) — Nghĩa: ${t.meaning}${notePart}`
+      );
+    });
+    sections.push(
+      `3. KIẾN THỨC GỐC TỪ KHO HỌC CÁ NHÂN & VÍ DỤ TƯƠNG TỰ\n` +
+        targetLines.join('\n') +
+        `\n  • Quy tắc 5 giây khi gặp lại trong phòng thi:\n` +
+        (isStarMondai
+          ? `    1) Xác định ngay cụm cố định từ mẫu ngữ pháp 「${question.usedTargets[0].title}」 (${question.usedTargets[0].readingOrStructure}).\n` +
+            `    2) Tìm mảnh đứng ngay sau chỗ trống đầu tiên và mảnh nối trực tiếp vào vị trí cuối câu trước khi chốt vị trí ★.`
+          : `    1) Gạch chân từ khóa đứng sát trước/sau chỗ trống để kiểm tra quy tắc kết nối của 「${question.usedTargets[0].title}」.\n` +
+            `    2) Kiểm tra chiều logic của 2 vế câu (Thuận chiều nguyên nhân - kết quả hay Ngược chiều tương phản) trước khi chọn đáp án.`)
+    );
+  } else if (question.explanation) {
+    sections.push(`3. TỔNG KẾT CỐT LÕI CÂU HỎI\n• ${question.explanation}`);
+  }
+
+  return sections.join('\n\n');
+}
+

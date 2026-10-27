@@ -190,4 +190,20 @@ export interface UserProfile {
   vocabFirebaseUid?: string;
   grammarFirebaseUid?: string;
   themeColor?: 'sky' | 'sakura';
+  cloudSyncKey?: string;
+  lastCloudSyncedAt?: number;
+  lastSyncedDevice?: string;
+}
+
+export interface CrossDeviceWorkspaceSnapshot {
+  version: number;
+  updatedAt: number;
+  deviceLabel: string;
+  profile: UserProfile;
+  roadmap: DailyRoadmap;
+  bugs: BugRecord[];
+  studyLog: DailyStudyLog;
+  dailyReports: DailyProgressReport[];
+  selectedGrammarSources?: string[];
+  knowledgeBase?: KnowledgeBaseData;
 }

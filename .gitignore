@@ -8,3 +8,4 @@ coverage/
 !.env.example
 .playwright-cli/
 .aistudio/
+.aistudio_sync_store.json

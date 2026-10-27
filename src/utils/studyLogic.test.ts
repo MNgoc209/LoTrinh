@@ -321,6 +321,7 @@ test('parseGrammarBackupJson maps OnTapNguPhap sourceIds array and filters by se
 import {
   generateClientTargetedQuestions,
   resolveMondaiId,
+  generateDeepDiveAnalysis,
 } from './jlptMondaiTaxonomy';
 
 test('generateClientTargetedQuestions generates authentic JLPT N3 Mondai 2 Star (★) and Vocabulary Mondai 1-5 formats', () => {
@@ -418,5 +419,16 @@ test('generateClientTargetedQuestions generates authentic JLPT N3 Mondai 2 Star 
   assert.equal(resolveMondaiId('grammar_mondai_3_4', 'grammar_m2_star', ''), 'grammar_m2_star');
   assert.equal(resolveMondaiId('grammar_mondai_3_4', undefined, 'Ngữ pháp · Mondai 2 (Dấu sao ★)'), 'grammar_m2_star');
   assert.equal(resolveMondaiId('vocab_synonyms_usage', undefined, 'Từ vựng · Mondai 5 (Cách dùng từ đúng)'), 'vocab_m5_usage');
+
+  // 5. generateDeepDiveAnalysis provides detailed 3-part breakdown for both wrong and correct selections
+  const starQ = starQuestions[0];
+  const wrongIdx = (starQ.correctAnswerIndex + 1) % 4;
+  const wrongAnalysis = generateDeepDiveAnalysis(starQ, wrongIdx);
+  assert.match(wrongAnalysis, /1\. PHÂN TÍCH BẪY TƯ DUY/);
+  assert.match(wrongAnalysis, /2\. GIẢI PHẪU 4 PHƯƠNG ÁN LỰA CHỌN/);
+  assert.match(wrongAnalysis, /3\. KIẾN THỨC GỐC TỪ KHO HỌC CÁ NHÂN/);
+
+  const rightAnalysis = generateDeepDiveAnalysis(starQ, starQ.correctAnswerIndex);
+  assert.match(rightAnalysis, /1\. ĐÁNH GIÁ LỰA CHỌN CỦA BẠN \(CHÍNH XÁC ✓\)/);
 });
 

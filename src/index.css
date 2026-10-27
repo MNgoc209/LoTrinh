@@ -3,35 +3,43 @@
 
 :root,
 [data-theme="sky"] {
-  /* Soothing Pastel Light Sky Blue Palette (Xanh biển nhạt dịu mắt) */
-  --bg-canvas: #F3F8FC;
-  --c-50: #ECF5FC;
-  --c-100: #DCEBFA;
-  --c-200: #C2DDF6;
-  --c-300: #9AC6EE;
-  --c-400: #6CA8E1;
-  --c-500: #4B8DD0;
-  --c-600: #3978BA;
-  --c-700: #2C619B;
-  --c-800: #224B79;
-  --c-900: #1A395C;
-  --c-950: #10243C;
+  /* Soothing Pastel Baby Sky Blue Palette (#BEDEFF) */
+  --bg-canvas: #F3F8FF;
+  --c-50: #EDF6FF;
+  --c-100: #DFEEFF;
+  --c-200: #BEDEFF;
+  --c-300: #A2CEFF;
+  --c-400: #7FB9FF;
+  --c-500: #4A90E2;
+  --c-600: #2B6CB0;
+  --c-700: #235896;
+  --c-800: #184173;
+  --c-900: #102D52;
+  --c-950: #0A1D36;
+  --btn-primary-bg: #BEDEFF;
+  --btn-primary-hover: #A8D2FF;
+  --btn-primary-text: #0F2942;
+  --btn-primary-border: #93C2F5;
 }
 
 [data-theme="sakura"] {
   /* Soothing Pastel Soft Blush Pink Palette (Hồng phấn nhạt dịu mắt) */
-  --bg-canvas: #FDF6F8;
-  --c-50: #FCEEF3;
-  --c-100: #F8DFE8;
-  --c-200: #F0C6D7;
-  --c-300: #E4A5BF;
-  --c-400: #D580A3;
-  --c-500: #C3638B;
-  --c-600: #AD4E76;
-  --c-700: #913E61;
-  --c-800: #75324E;
-  --c-900: #5B263C;
-  --c-950: #3A1726;
+  --bg-canvas: #FDF6F9;
+  --c-50: #FCEFF4;
+  --c-100: #F9E2EC;
+  --c-200: #F5C6DA;
+  --c-300: #EBA8C4;
+  --c-400: #DC87AB;
+  --c-500: #C86A92;
+  --c-600: #9E3F67;
+  --c-700: #8D395D;
+  --c-800: #702C49;
+  --c-900: #542037;
+  --c-950: #361322;
+  --btn-primary-bg: #F5C6DA;
+  --btn-primary-hover: #EEB3CC;
+  --btn-primary-text: #3B1525;
+  --btn-primary-border: #E59FBD;
 }
 
 @theme inline {
@@ -53,6 +61,26 @@ body {
   background-color: var(--bg-canvas);
   color: #1E293B;
   transition: background-color 0.2s ease;
+}
+
+/* Ensure all primary buttons using bg-pink-600 showcase the soft #BEDEFF pastel surface with crisp AAA dark navy text */
+.bg-pink-600 {
+  background-color: var(--btn-primary-bg) !important;
+  color: var(--btn-primary-text) !important;
+  border: 1px solid var(--btn-primary-border);
+}
+
+.bg-pink-600 .text-pink-100,
+.bg-pink-600 .text-pink-50,
+.bg-pink-600 .text-white {
+  color: var(--btn-primary-text) !important;
+  opacity: 0.82;
+}
+
+.bg-pink-600:hover,
+.hover\:bg-pink-700:hover {
+  background-color: var(--btn-primary-hover) !important;
+  color: var(--btn-primary-text) !important;
 }
 
 @layer utilities {
